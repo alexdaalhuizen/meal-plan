@@ -360,11 +360,21 @@ async function sync(quiet){
   }finally{ syncing=false; }
 }
 function kick(){ clearTimeout(kickTimer); kickTimer = setTimeout(()=>sync(true), 500); }
-function startSync(){
+/* Poll faster on the shopping list — that's the screen two people use at
+   the same time, one in the shop and one at home. */
+const pollEvery = () => tab === "shopping" ? 4000 : 12000;
+let pollRate = 0;
+function startSync(quiet){
   clearInterval(syncTimer);
   if(!connected()){ setSync("off"); return; }
-  sync();
-  syncTimer = setInterval(()=>{ if(document.visibilityState==="visible") sync(true); }, 10000);
+  if(!quiet) sync();
+  pollRate = pollEvery();
+  syncTimer = setInterval(()=>{ if(document.visibilityState==="visible") sync(true); }, pollRate);
+}
+/* Called whenever the tab changes, so the rate follows the screen. */
+function retimeSync(){
+  if(!connected()) return;
+  if(pollEvery() !== pollRate) startSync(true);
 }
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") sync(true); });
 window.addEventListener("online", ()=>sync());
@@ -1024,7 +1034,10 @@ const closeMenu = () => document.querySelectorAll(".menu").forEach(m=>m.remove()
 /* =========================================================
    9. Events
    ========================================================= */
-document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); }));
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{
+  tab=b.dataset.tab; render(); window.scrollTo(0,0);
+  retimeSync(); sync(true);          // opening a tab should show the latest straight away
+}));
 document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagation(); openMenu(); });
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
@@ -1100,7 +1113,8 @@ document.addEventListener("click", e=>{
     Object.keys(S.items).forEach(id=>{ S.pending[id]=1; });   // upload what's already here
     S.watermark=null; saveLocal();
     setSync("busy");
-    sync().then(()=>{ openSharing(); if(syncState==="ok") toast("Connected — now send her the invite link"); });
+    startSync();                                              // begin polling now, not on next load
+    setTimeout(()=>{ openSharing(); if(syncState==="ok") toast("Connected — now send her the invite link"); }, 900);
   }
   else if(act==="join"){
     const v=document.getElementById("joinLink").value;
@@ -1108,7 +1122,8 @@ document.addEventListener("click", e=>{
     S.seeded=true;                                       // take theirs, don't add samples
     Object.keys(S.items).forEach(id=>{ S.pending[id]=1; });
     saveLocal(); setSync("busy");
-    sync().then(()=>{ closeModal(); render(); toast(syncState==="ok"?"Joined — you're both on the same plan":"Couldn't reach it, check the link"); });
+    startSync();                                              // begin polling now, not on next load
+    setTimeout(()=>{ closeModal(); render(); toast(syncState==="ok"?"Joined — you're both on the same plan":"Couldn't reach it, check the link"); }, 900);
   }
   else if(act==="synctest"){ sync().then(()=>{ openSharing(); toast(syncState==="ok"?"All good":"Still failing"); }); }
   else if(act==="copyinvite") copyText(inviteLink(), "Invite link copied");
