@@ -452,6 +452,38 @@ function prettyQty(n,u,shopping){
 }
 const plural = (n,w) => n===1 ? w : w+"s";
 
+/* "onion" and "onions" are the same thing on a shopping list; "red onion"
+   is not. So we fold plurals for matching, but keep every other word. */
+function singular(w){
+  if(w.length < 4) return w;
+  if(/ies$/.test(w)) return w.slice(0,-3)+"y";
+  if(/(ses|xes|zes|ches|shes)$/.test(w)) return w.slice(0,-2);
+  if(/oes$/.test(w)) return w.slice(0,-2);
+  if(/(ss|us|is)$/.test(w)) return w;
+  if(/s$/.test(w)) return w.slice(0,-1);
+  return w;
+}
+function normItem(s){
+  return String(s).toLowerCase().trim().replace(/[.,]+$/,"").replace(/\s+/g," ")
+         .split(" ").map(singular).join(" ");
+}
+function pluralise(s){
+  const parts = s.split(" ");
+  let w = parts[parts.length-1];
+  if(/s$/i.test(w)) return s;                       // already plural
+  if(/(tomato|potato)$/i.test(w)) w += "es";
+  else if(/[^aeiou]y$/i.test(w)) w = w.slice(0,-1)+"ies";
+  else if(/(ch|sh|x|z|ss)$/i.test(w)) w += "es";
+  else w += "s";
+  parts[parts.length-1] = w;
+  return parts.join(" ");
+}
+/* Only pluralise things we're counting — "3 onions" but never "200g flours". */
+function itemLabel(item, qty, unit){
+  if(unit || qty==null || qty==="") return item;
+  return Math.ceil(Number(qty)-1e-9) > 1 ? pluralise(item) : item;
+}
+
 /* =========================================================
    6. Domain accessors
    ========================================================= */
@@ -479,7 +511,7 @@ function buildList(w){
     r.doc.ingredients.forEach(ing=>{
       if(!ing.item) return;
       const c = canon(ing.unit);
-      const key = ing.item.toLowerCase().trim()+"|"+c.u;
+      const key = normItem(ing.item)+"|"+c.u;
       const qty = (ing.qty==null||ing.qty==="") ? null : Number(ing.qty)*c.f*factor;
       if(!map.has(key)) map.set(key,{key,item:ing.item.trim(),unit:c.u,qty:qty,aisle:ing.aisle||"Other",sources:new Set([r.doc.name])});
       else { const e=map.get(key); if(qty!=null) e.qty=(e.qty||0)+qty; e.sources.add(r.doc.name); }
@@ -598,7 +630,7 @@ function renderShopping(){
     if(it.aisle!==cur){ if(cur!==null) body+='</div>'; cur=it.aisle; body+='<h3>'+esc(cur)+'</h3><div class="card">'; }
     body += '<div class="item'+(it.done?" done":"")+'">'
       + '<button class="cb" data-tick="'+esc(it.key)+'">'+(it.done?"✓":"")+'</button>'
-      + '<div class="txt"><span class="qty" style="font-weight:700">'+prettyQty(it.qty,it.unit,true)+'</span> '+esc(it.item)
+      + '<div class="txt"><span class="qty" style="font-weight:700">'+prettyQty(it.qty,it.unit,true)+'</span> '+esc(itemLabel(it.item,it.qty,it.unit))
       + '<span class="src">'+esc(it.sources.join(", "))+'</span></div>'
       + '<button class="del" data-hide="'+esc(it.key)+'" title="Already have it">×</button></div>';
   });
@@ -967,7 +999,7 @@ function listAsText(){
   let cur=null;
   items.forEach(i=>{
     if(i.aisle!==cur){ cur=i.aisle; lines.push(""); lines.push(cur.toUpperCase()); }
-    lines.push((i.done?"[x] ":"[ ] ")+(prettyQty(i.qty,i.unit,true)+" "+i.item).trim());
+    lines.push((i.done?"[x] ":"[ ] ")+(prettyQty(i.qty,i.unit,true)+" "+itemLabel(i.item,i.qty,i.unit)).trim());
   });
   if(extras.length){ lines.push(""); lines.push("EXTRAS"); extras.forEach(x=>lines.push((x.doc.checked?"[x] ":"[ ] ")+x.doc.text)); }
   const d=weekDates(week);
@@ -1136,7 +1168,7 @@ const SAMPLES = [
   ingredients:[I(600,"g","chicken thighs","Meat & Fish"),I(3,"tbsp","green curry paste","Tins & Jars"),I(400,"ml","coconut milk","Tins & Jars"),I(150,"g","green beans","Produce"),I(1,"","aubergine","Produce"),I(300,"g","jasmine rice","Dry Goods"),I(1,"tbsp","fish sauce","Tins & Jars"),I(1,"bunch","coriander","Produce")],
   steps:[St("Rinse the rice and set it on to cook.",12),St("Fry the curry paste in a splash of coconut milk until fragrant.",2),St("Add sliced chicken thighs and coat in the paste.",4),St("Pour in the rest of the coconut milk and bring to a simmer.",3),St("Add chopped aubergine and beans, simmer until tender.",12),St("Season with fish sauce, scatter coriander, serve with rice.")]}],
  ["r-chilli",{name:"Beef chilli",servings:6,time:70,batch:true,tags:["freezer","family"],
-  ingredients:[I(750,"g","beef mince","Meat & Fish"),I(2,"","onions","Produce"),I(3,"clove","garlic","Produce"),I(2,"can","chopped tomatoes","Tins & Jars"),I(1,"can","kidney beans","Tins & Jars"),I(2,"tbsp","chilli powder","Herbs & Spices"),I(1,"tbsp","ground cumin","Herbs & Spices"),I(1,"","beef stock cube","Dry Goods"),I(300,"g","long grain rice","Dry Goods")],
+  ingredients:[I(750,"g","beef mince","Meat & Fish"),I(2,"","onion","Produce"),I(3,"clove","garlic","Produce"),I(2,"can","chopped tomatoes","Tins & Jars"),I(1,"can","kidney beans","Tins & Jars"),I(2,"tbsp","chilli powder","Herbs & Spices"),I(1,"tbsp","ground cumin","Herbs & Spices"),I(1,"","beef stock cube","Dry Goods"),I(300,"g","long grain rice","Dry Goods")],
   steps:[St("Dice the onions, crush the garlic."),St("Soften the onions in a large casserole.",8),St("Add garlic and spices, cook until aromatic.",2),St("Brown the mince thoroughly.",8),St("Add tomatoes, crumbled stock cube and a splash of water.",2),St("Simmer gently, stirring now and then.",40),St("Stir in the drained kidney beans and warm through.",5),St("Cook the rice and serve.",12)]}],
  ["r-salmon",{name:"Salmon with roasted veg",servings:2,time:35,batch:false,tags:["quick","healthy"],
   ingredients:[I(2,"","salmon fillets","Meat & Fish"),I(400,"g","new potatoes","Produce"),I(1,"","courgette","Produce"),I(200,"g","cherry tomatoes","Produce"),I(2,"tbsp","olive oil","Dry Goods"),I(1,"","lemon","Produce")],
