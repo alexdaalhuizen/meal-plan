@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meal Plan</title>
+<meta name="theme-color" content="#faf7f3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Meal Plan">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#faf7f3; --card:#ffffff; --ink:#26201b; --muted:#7c6f64; --line:#e7ded2;
+  --accent:#b4532a; --accent-soft:#fbeee6; --green:#2f6f4e; --green-soft:#e8f2ec;
+  --amber:#a16207; --red:#b3261e;
+  --shadow:0 1px 2px rgba(38,32,27,.06), 0 4px 14px rgba(38,32,27,.05);
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#17140f; --card:#221d17; --ink:#f0e9e0; --muted:#a2958a; --line:#352d25;
+    --accent:#e8834f; --accent-soft:#3a251a; --green:#6fbf92; --green-soft:#1e3229;
+    --amber:#d9a441; --red:#e97066;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
+a{color:var(--accent)}
+code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);padding:1px 5px;border-radius:5px;border:1px solid var(--line)}
+
+header.app{
+  position:sticky; top:0; z-index:40; background:var(--bg);
+  border-bottom:1px solid var(--line); padding:14px 16px 0;
+  padding-top:calc(14px + env(safe-area-inset-top));
+}
+.brandrow{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.brand{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.brand .dot{color:var(--accent)}
+.sp{flex:1}
+.tabs{display:flex;gap:4px}
+.tab{
+  appearance:none;border:0;background:none;padding:9px 14px 12px;
+  color:var(--muted);font-weight:600;font-size:15px;
+  border-bottom:2.5px solid transparent;margin-bottom:-1px;border-radius:8px 8px 0 0;
+}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+main{max-width:1180px;margin:0 auto;padding:16px 16px 90px;padding-bottom:calc(90px + env(safe-area-inset-bottom))}
+
+.syncpill{
+  display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);
+  border-radius:99px;padding:4px 10px 4px 8px;font-size:12.5px;font-weight:600;color:var(--muted);
+}
+.syncpill .led{width:7px;height:7px;border-radius:99px;background:var(--muted)}
+.syncpill[data-s="ok"] .led{background:var(--green)}
+.syncpill[data-s="busy"] .led{background:var(--amber);animation:pulse 1s infinite}
+.syncpill[data-s="err"] .led{background:var(--red)}
+.syncpill[data-s="offline"] .led{background:var(--amber)}
+.syncpill[data-s="off"] .led{background:var(--muted)}
+@keyframes pulse{50%{opacity:.25}}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 13px;border-radius:10px;font-size:14px;font-weight:600}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{opacity:.9;color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.ghost:hover{color:var(--accent)}
+.btn.sm{padding:5px 9px;font-size:13px;border-radius:8px}
+.btn.danger:hover{border-color:var(--red);color:var(--red)}
+.btn:disabled{opacity:.45;cursor:default}
+.row{display:flex;align-items:center;gap:8px}
+.wrap{flex-wrap:wrap}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.tiny{font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:3px 7px;border-radius:99px;background:var(--accent-soft);color:var(--accent)}
+.pill.green{background:var(--green-soft);color:var(--green)}
+.empty{text-align:center;color:var(--muted);padding:34px 18px;font-size:14.5px}
+input[type=text],input[type=number],input[type=search],input[type=url],select,textarea{
+  background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;width:100%;
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+label.f{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:0 0 4px;text-transform:uppercase;letter-spacing:.04em}
+
+.weeknav{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.weeknav .wlabel{font-weight:700;font-size:16px;flex:1;text-align:center}
+.weeknav .wlabel .sub{display:block;font-size:12px;font-weight:600;color:var(--muted)}
+.arrow{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);font-size:17px;line-height:1;display:grid;place-items:center}
+.arrow:hover{border-color:var(--accent);color:var(--accent)}
+
+.days{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(228px,1fr))}
+.day{padding:12px 13px 13px}
+.day.today{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent), var(--shadow)}
+.dayhead{display:flex;align-items:baseline;gap:6px;margin-bottom:9px}
+.dayname{font-weight:700;font-size:14.5px}
+.daydate{font-size:12.5px;color:var(--muted)}
+.slot{margin-top:8px}
+.slotlabel{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.meal{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 7px 6px 9px;margin-bottom:5px}
+.meal .nm{flex:1;font-size:13.5px;font-weight:600;line-height:1.3;text-align:left;background:none;border:0;padding:0}
+.meal .nm:hover{color:var(--accent)}
+.meal .sv{font-size:11.5px;color:var(--muted);font-weight:700;white-space:nowrap}
+.meal .x{border:0;background:none;color:var(--muted);font-size:15px;line-height:1;padding:2px 3px;border-radius:6px}
+.meal .x:hover{color:var(--red)}
+.addslot{width:100%;border:1px dashed var(--line);background:none;color:var(--muted);border-radius:9px;padding:6px;font-size:13px;font-weight:600}
+.addslot:hover{border-color:var(--accent);color:var(--accent);border-style:solid}
+
+.rgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.rcard{padding:14px;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);width:100%}
+.rcard:hover{border-color:var(--accent)}
+.rcard h3{font-size:15.5px;margin-bottom:5px}
+.tagrow{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+.tag{font-size:11.5px;color:var(--muted);background:var(--bg);border:1px solid var(--line);padding:2px 7px;border-radius:99px}
+
+.aisle h3{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:14px 4px 6px}
+.item{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item .cb{width:22px;height:22px;flex:none;margin-top:1px;border-radius:6px;border:1.5px solid var(--line);background:var(--card);display:grid;place-items:center;color:#fff;font-size:13px;padding:0}
+.item.done .cb{background:var(--green);border-color:var(--green)}
+.item .txt{flex:1;line-height:1.35;font-size:14.5px}
+.item .txt .src{display:block;font-size:11.5px;color:var(--muted);margin-top:1px}
+.item.done .txt{text-decoration:line-through;color:var(--muted)}
+.item .del{border:0;background:none;color:var(--muted);font-size:15px;padding:0 4px;opacity:.55}
+.item .del:hover{opacity:1;color:var(--red)}
+
+.overlay{position:fixed;inset:0;z-index:100;background:rgba(20,15,10,.5);display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:640px){.overlay{align-items:center;padding:24px}}
+.sheet{background:var(--card);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;box-shadow:0 -8px 40px rgba(0,0,0,.25);padding-bottom:env(safe-area-inset-bottom)}
+@media(min-width:640px){.sheet{border-radius:16px}}
+.sheethead{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:14px 16px;display:flex;align-items:center;gap:10px;z-index:2}
+.sheethead h2{font-size:17px;flex:1}
+.sheetbody{padding:16px}
+.fieldrow{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stepnum{width:24px;height:24px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:800;display:grid;place-items:center;flex:none;margin-top:8px}
+.ingline{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+.ingline:last-child{border-bottom:0}
+.method li{margin-bottom:10px;line-height:1.5}
+.method li .t{display:inline-block;font-size:12px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:99px;margin-left:6px;white-space:nowrap}
+.menu{position:absolute;right:16px;top:52px;z-index:60;padding:6px;min-width:210px}
+.menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 11px;border-radius:8px;font-size:14px}
+.menu button:hover{background:var(--bg);color:var(--accent)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:200;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:88vw;text-align:center}
+pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;margin:0}
+.step{display:flex;gap:11px;margin-bottom:16px}
+.step .n{width:23px;height:23px;border-radius:99px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:800;display:grid;place-items:center;flex:none;margin-top:2px}
+.step .b{flex:1}
+.note{background:var(--accent-soft);border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brandrow">
+    <div class="brand">Meal Plan<span class="dot">.</span></div>
+    <div class="sp"></div>
+    <button class="syncpill" id="syncPill" data-s="off"><span class="led"></span><span id="syncTxt">Local</span></button>
+    <button class="btn sm ghost" id="menuBtn" aria-label="Menu">&#9881;</button>
+  </div>
+  <nav class="tabs">
+    <button class="tab on" data-tab="plan">Plan</button>
+    <button class="tab" data-tab="recipes">Recipes</button>
+    <button class="tab" data-tab="shopping">Shopping</button>
+  </nav>
+</header>
+
+<main id="view"></main>
+<div id="modal"></div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   0. Keys, constants
+   ========================================================= */
+const CFG_KEY  = "mealplan.cfg";
+const DATA_KEY = "mealplan.v2";
+const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
+const UNITS  = ["","g","kg","ml","l","tsp","tbsp","clove","can","pack","bunch","handful","slice"];
+const DAYNAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+const uid = p => (p||"") + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
+
+/* =========================================================
+   1. Local persistence  (never throws — degrades to memory)
+   ========================================================= */
+let storageOK = true;
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ storageOK=false; return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){ storageOK=false; } }
+
+let cfg = { url:"", key:"", hh:"" };
+try{ Object.assign(cfg, JSON.parse(lsGet(CFG_KEY)||"{}")); }catch(e){}
+function saveCfg(){ lsSet(CFG_KEY, JSON.stringify(cfg)); }
+
+/* The store is a flat bag of items so two people can edit different
+   things at once without overwriting each other's work.            */
+let S = { items:{}, pending:{}, watermark:null, seeded:false };
+try{
+  const raw = lsGet(DATA_KEY);
+  if(raw){ const p = JSON.parse(raw); if(p && p.items) S = Object.assign(S, p); }
+}catch(e){}
+let saveTimer=null;
+function saveLocal(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>lsSet(DATA_KEY, JSON.stringify(S)), 120);
+}
+
+/* =========================================================
+   2. Item helpers
+   ========================================================= */
+function put(kind, id, doc){
+  S.items[id] = { id, kind, doc, deleted:false, updated_at:new Date().toISOString() };
+  S.pending[id] = 1; saveLocal(); kick();
+  return id;
+}
+function drop(id){
+  const it = S.items[id]; if(!it) return;
+  it.deleted = true; it.updated_at = new Date().toISOString();
+  S.pending[id] = 1; saveLocal(); kick();
+}
+function get(id){ const i=S.items[id]; return (i && !i.deleted) ? i : null; }
+function all(kind){
+  const out=[];
+  for(const k in S.items){ const i=S.items[k]; if(i.kind===kind && !i.deleted) out.push(i); }
+  return out;
+}
+
+/* =========================================================
+   3. Sync engine — plain fetch against Supabase PostgREST
+   ========================================================= */
+let syncState = "off";        // off | ok | busy | err
+let syncMsg = "";
+let syncTimer=null, kickTimer=null;
+
+const connected = () => !!(cfg.url && cfg.key && cfg.hh);
+function base(){ return cfg.url.replace(/\/+$/,""); }
+function api(path, opts){
+  opts = opts || {};
+  return fetch(base()+"/rest/v1/"+path, Object.assign({}, opts, {
+    headers: Object.assign({
+      apikey: cfg.key,
+      Authorization: "Bearer "+cfg.key,
+      "Content-Type": "application/json"
+    }, opts.headers||{})
+  }));
+}
+function setSync(state, msg){
+  syncState=state; syncMsg=msg||"";
+  const pill=document.getElementById("syncPill"), txt=document.getElementById("syncTxt");
+  pill.dataset.s = state;
+  const waiting = Object.keys(S.pending).length;
+  txt.textContent =
+      state==="ok"      ? "Synced"
+    : state==="busy"    ? "Syncing"
+    : state==="offline" ? (waiting ? "Offline · "+waiting : "Offline")
+    : state==="err"     ? "Sync issue"
+    :                     "Local only";
+}
+
+async function pull(){
+  let q = "items?household=eq."+encodeURIComponent(cfg.hh)+"&select=id,kind,doc,deleted,updated_at";
+  if(S.watermark) q += "&updated_at=gte."+encodeURIComponent(S.watermark);
+  const r = await api(q);
+  if(!r.ok) throw new Error("Couldn't read ("+r.status+")");
+  const rows = await r.json();
+  let changed=false, maxT = S.watermark ? new Date(S.watermark) : null;
+  rows.forEach(row=>{
+    const t = new Date(row.updated_at);
+    if(!maxT || t>maxT) maxT = t;
+    if(S.pending[row.id]) return;                       // our unpushed edit wins for now
+    const cur = S.items[row.id];
+    if(!cur || t >= new Date(cur.updated_at||0)){
+      S.items[row.id] = { id:row.id, kind:row.kind, doc:row.doc, deleted:!!row.deleted, updated_at:row.updated_at };
+      changed = true;
+    }
+  });
+  if(maxT) S.watermark = maxT.toISOString();
+  if(changed){ saveLocal(); render(); }
+  return rows.length;
+}
+
+async function push(){
+  const ids = Object.keys(S.pending);
+  if(!ids.length) return 0;
+  const payload = ids.map(id=>{
+    const i = S.items[id];
+    return { id:i.id, household:cfg.hh, kind:i.kind, doc:i.doc, deleted:!!i.deleted };
+  });
+  const r = await api("items?on_conflict=id", {
+    method:"POST",
+    headers:{ Prefer:"resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(payload)
+  });
+  if(!r.ok){
+    const body = await r.text();
+    throw new Error("Couldn't save ("+r.status+") "+body.slice(0,120));
+  }
+  const rows = await r.json();
+  rows.forEach(row=>{
+    if(S.items[row.id]) S.items[row.id].updated_at = row.updated_at;
+    delete S.pending[row.id];
+  });
+  saveLocal();
+  return rows.length;
+}
+
+let syncing=false;
+async function sync(quiet){
+  if(!connected()){ setSync("off"); return; }
+  if(syncing) return;
+  syncing=true;
+  if(!quiet) setSync("busy");
+  try{
+    await push();
+    await pull();
+    setSync("ok");
+    if(!S.seeded){ maybeSeed(); }
+  }catch(e){
+    // A flat "no internet" isn't a fault worth alarming anyone about.
+    setSync(navigator.onLine ? "err" : "offline", e.message);
+    console.warn("sync", e);
+  }finally{ syncing=false; }
+}
+function kick(){ clearTimeout(kickTimer); kickTimer = setTimeout(()=>sync(true), 500); }
+function startSync(){
+  clearInterval(syncTimer);
+  if(!connected()){ setSync("off"); return; }
+  sync();
+  syncTimer = setInterval(()=>{ if(document.visibilityState==="visible") sync(true); }, 10000);
+}
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") sync(true); });
+window.addEventListener("online", ()=>sync());
+window.addEventListener("offline", ()=>{ if(connected()) setSync("offline"); });
+
+/* base64url for the invite link */
+function b64e(str){
+  const bytes = new TextEncoder().encode(str);
+  let s=""; bytes.forEach(b=>s+=String.fromCharCode(b));
+  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function b64d(b64){
+  const s = atob(b64.replace(/-/g,"+").replace(/_/g,"/"));
+  const bytes = new Uint8Array(s.length);
+  for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function inviteLink(){
+  const payload = b64e(JSON.stringify({u:cfg.url,k:cfg.key,h:cfg.hh}));
+  return location.origin + location.pathname + "#s=" + payload;
+}
+/* Accepts a whole invite link or just the code after #s=.
+   The paste route matters on iPhone: a home-screen app gets its own
+   storage, so she may need to paste the link once more inside it. */
+function applyInvite(str){
+  if(!str) return false;
+  const m = String(str).match(/#s=([A-Za-z0-9\-_]+)/) || String(str).trim().match(/^([A-Za-z0-9\-_]{20,})$/);
+  if(!m) return false;
+  try{
+    const o = JSON.parse(b64d(m[1]));
+    if(!o.u||!o.k||!o.h) return false;
+    cfg.url=o.u; cfg.key=o.k; cfg.hh=o.h; saveCfg();
+    S.watermark = null;                                  // fresh device: pull everything
+    return true;
+  }catch(e){ return false; }
+}
+function readInvite(){
+  if(!location.hash.startsWith("#s=")) return false;
+  const ok = applyInvite(location.hash);
+  history.replaceState(null,"",location.pathname);
+  return ok;
+}
+
+/* =========================================================
+   4. Dates
+   ========================================================= */
+function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function parseISO(s){ const p=s.split("-").map(Number); return new Date(p[0],p[1]-1,p[2]); }
+function addDays(d,n){ const x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
+function mondayOf(d){ const x=new Date(d.getTime()); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); x.setHours(0,0,0,0); return x; }
+function fmtShort(d){ return d.getDate()+" "+MONTHS[d.getMonth()]; }
+function weekDates(w){ const m=parseISO(w); return Array.from({length:7},(_,i)=>addDays(m,i)); }
+
+let tab="plan";
+let week = iso(mondayOf(new Date()));
+let recipeSearch="";
+
+/* =========================================================
+   5. Units
+   ========================================================= */
+const WHOLE   = ["","can","pack","bunch","slice","clove"];
+const COUNTED = ["clove","can","pack","bunch","handful","slice"];
+function canon(unit){
+  const u=(unit||"").toLowerCase().trim();
+  if(u==="kg") return {u:"g", f:1000};
+  if(u==="l"||u==="litre") return {u:"ml", f:1000};
+  if(u==="tbsp") return {u:"tsp", f:3};
+  return {u:u, f:1};
+}
+function prettyQty(n,u,shopping){
+  if(n==null||n==="") return "";
+  let unit=u, val=Number(n);
+  if(shopping && WHOLE.includes(unit)) val = Math.ceil(val-1e-9);
+  if(unit==="g" && val>=1000){ unit="kg"; val=val/1000; }
+  else if(unit==="ml" && val>=1000){ unit="l"; val=val/1000; }
+  else if((unit==="g"||unit==="ml") && val>=25) val = Math.round(val/5)*5;
+  else if(unit==="tsp"){
+    val = Math.max(0.25, Math.round(val*4)/4);
+    if(val>=3 && Math.abs(val/3 - Math.round(val*10/3)/10) < 1e-9){ unit="tbsp"; val=val/3; }
+  }
+  const s = String(Math.round(val*100)/100);
+  if(!unit) return s;
+  if(COUNTED.includes(unit)) return s+" "+unit+(val===1?"":"s");
+  return s+unit;
+}
+const plural = (n,w) => n===1 ? w : w+"s";
+
+/* =========================================================
+   6. Domain accessors
+   ========================================================= */
+const household = () => { const s=get("setting:household"); return (s && s.doc.value) || 2; };
+function recipes(){ return all("recipe").sort((a,b)=>a.doc.name.localeCompare(b.doc.name)); }
+function recipeById(id){ const i=get(id); return (i && i.kind==="recipe") ? i : null; }
+function mealsOn(dateISO, slot){
+  return all("meal").filter(m=>m.doc.date===dateISO && m.doc.slot===slot)
+                    .sort((a,b)=>(a.doc.order||0)-(b.doc.order||0));
+}
+function weekMeals(w){
+  const days = weekDates(w).map(iso);
+  return all("meal").filter(m=>days.includes(m.doc.date))
+                    .sort((a,b)=>(a.doc.date+a.doc.slot).localeCompare(b.doc.date+b.doc.slot));
+}
+const tickId = (w,k) => "k:"+w+":"+k;
+const hideId = (w,k) => "h:"+w+":"+k;
+const isOn = id => { const i=get(id); return !!(i && i.doc.on); };
+
+function buildList(w){
+  const map = new Map();
+  weekMeals(w).forEach(m=>{
+    const r = recipeById(m.doc.recipeId); if(!r) return;
+    const factor = (m.doc.servings || r.doc.servings) / (r.doc.servings || 1);
+    r.doc.ingredients.forEach(ing=>{
+      if(!ing.item) return;
+      const c = canon(ing.unit);
+      const key = ing.item.toLowerCase().trim()+"|"+c.u;
+      const qty = (ing.qty==null||ing.qty==="") ? null : Number(ing.qty)*c.f*factor;
+      if(!map.has(key)) map.set(key,{key,item:ing.item.trim(),unit:c.u,qty:qty,aisle:ing.aisle||"Other",sources:new Set([r.doc.name])});
+      else { const e=map.get(key); if(qty!=null) e.qty=(e.qty||0)+qty; e.sources.add(r.doc.name); }
+    });
+  });
+  const items = [...map.values()]
+    .filter(e=>!isOn(hideId(w,e.key)))
+    .map(e=>({...e, sources:[...e.sources], done:isOn(tickId(w,e.key))}));
+  items.sort((a,b)=>{
+    const ai=AISLES.indexOf(a.aisle), bi=AISLES.indexOf(b.aisle);
+    if(ai!==bi) return (ai<0?99:ai)-(bi<0?99:bi);
+    return a.item.localeCompare(b.item);
+  });
+  return items;
+}
+function extrasFor(w){ return all("extra").filter(x=>x.doc.week===w).sort((a,b)=>(a.doc.order||0)-(b.doc.order||0)); }
+
+/* =========================================================
+   7. Rendering
+   ========================================================= */
+const view = document.getElementById("view");
+const modal = document.getElementById("modal");
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function render(){
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on", b.dataset.tab===tab));
+  if(tab==="plan") renderPlan();
+  else if(tab==="recipes") renderRecipes();
+  else renderShopping();
+}
+function weekNav(){
+  const d=weekDates(week), thisWeek=iso(mondayOf(new Date()));
+  const rel=Math.round((parseISO(week)-parseISO(thisWeek))/(7*864e5));
+  const relTxt = rel===0?"This week":rel===1?"Next week":rel===-1?"Last week":(rel>0?"In "+rel+" weeks":Math.abs(rel)+" weeks ago");
+  return '<div class="weeknav">'
+    + '<button class="arrow" data-week="-1" aria-label="Previous week">‹</button>'
+    + '<div class="wlabel">'+fmtShort(d[0])+' – '+fmtShort(d[6])+' '+d[6].getFullYear()+'<span class="sub">'+relTxt+'</span></div>'
+    + '<button class="arrow" data-week="1" aria-label="Next week">›</button>'
+    + (rel!==0?'<button class="btn sm" data-week="0">Today</button>':'')
+    + '</div>';
+}
+
+function renderPlan(){
+  const today=iso(new Date());
+  let html = weekNav() + '<div class="days">';
+  weekDates(week).forEach((d,i)=>{
+    const ds=iso(d);
+    html += '<div class="card day'+(ds===today?" today":"")+'">'
+      + '<div class="dayhead"><span class="dayname">'+DAYNAMES[i]+'</span><span class="daydate">'+fmtShort(d)+'</span></div>';
+    ["lunch","dinner"].forEach(slot=>{
+      html += '<div class="slot"><div class="slotlabel">'+slot+'</div>';
+      mealsOn(ds,slot).forEach(m=>{
+        const r = recipeById(m.doc.recipeId);
+        if(!r) return;
+        html += '<div class="meal">'
+          + '<button class="nm" data-openrecipe="'+r.id+'">'+esc(r.doc.name)+'</button>'
+          + '<span class="sv">'+m.doc.servings+'</span>'
+          + '<button class="x" data-delmeal="'+m.id+'" aria-label="Remove">×</button></div>';
+      });
+      html += '<button class="addslot" data-add="'+ds+"|"+slot+'">+ Add</button></div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  const n = weekMeals(week).length;
+  html += '<div class="row wrap" style="margin-top:16px;gap:8px">'
+    + '<button class="btn sm" data-act="copylast">Copy last week</button>'
+    + '<button class="btn sm danger" data-act="clearweek">Clear week</button>'
+    + '<div class="sp"></div><span class="small muted">'+n+" "+plural(n,"meal")+' planned</span></div>';
+  view.innerHTML = html;
+}
+
+function renderRecipes(){
+  const q=recipeSearch.toLowerCase();
+  const list = recipes().filter(r=>!q || r.doc.name.toLowerCase().includes(q) || (r.doc.tags||[]).join(" ").toLowerCase().includes(q));
+  let html = '<div class="row" style="margin-bottom:14px;gap:8px">'
+    + '<input type="search" id="rsearch" placeholder="Search recipes…" value="'+esc(recipeSearch)+'">'
+    + '<button class="btn primary" data-act="newrecipe" style="white-space:nowrap">+ New</button></div>';
+  if(!list.length){
+    html += '<div class="card empty">No recipes'+(q?" match “"+esc(recipeSearch)+"”":" yet")+'.</div>';
+  }else{
+    html += '<div class="rgrid">' + list.map(r=>
+      '<button class="rcard" data-openrecipe="'+r.id+'"><h3>'+esc(r.doc.name)+'</h3>'
+      + '<div class="small muted">Serves '+r.doc.servings+' · '+r.doc.time+' min · '+r.doc.steps.length+' steps</div>'
+      + '<div class="tagrow">'+(r.doc.batch?'<span class="pill green">Batch</span>':"")
+      + (r.doc.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("")+'</div></button>').join("") + '</div>';
+  }
+  view.innerHTML = html;
+  const s=document.getElementById("rsearch");
+  s.addEventListener("input", e=>{
+    recipeSearch=e.target.value; const p=e.target.selectionStart;
+    renderRecipes();
+    const n2=document.getElementById("rsearch"); n2.focus(); n2.setSelectionRange(p,p);
+  });
+}
+
+function renderShopping(){
+  const items=buildList(week), extras=extrasFor(week), meals=weekMeals(week);
+  let html = weekNav();
+  if(!items.length && !extras.length){
+    view.innerHTML = html + '<div class="card empty">Nothing to buy yet.<br><span class="small">Add meals to this week and the list builds itself.</span></div>'
+      + extraForm();
+    bindShopping(); return;
+  }
+  const total=items.length+extras.length;
+  const doneN=items.filter(i=>i.done).length + extras.filter(e=>e.doc.checked).length;
+  html += '<div class="row wrap small muted" style="margin:-4px 4px 10px">'
+    + '<span>'+doneN+" of "+total+' picked up · '+meals.length+" "+plural(meals.length,"meal")+'</span>'
+    + '<div class="sp"></div>'
+    + '<button class="btn sm ghost" data-act="copylist">Copy as text</button>'
+    + '<button class="btn sm ghost" data-act="resetlist">Reset ticks</button></div>';
+
+  let cur=null, body="";
+  items.forEach(it=>{
+    if(it.aisle!==cur){ if(cur!==null) body+='</div>'; cur=it.aisle; body+='<h3>'+esc(cur)+'</h3><div class="card">'; }
+    body += '<div class="item'+(it.done?" done":"")+'">'
+      + '<button class="cb" data-tick="'+esc(it.key)+'">'+(it.done?"✓":"")+'</button>'
+      + '<div class="txt"><span class="qty" style="font-weight:700">'+prettyQty(it.qty,it.unit,true)+'</span> '+esc(it.item)
+      + '<span class="src">'+esc(it.sources.join(", "))+'</span></div>'
+      + '<button class="del" data-hide="'+esc(it.key)+'" title="Already have it">×</button></div>';
+  });
+  if(cur!==null) body+='</div>';
+  if(extras.length){
+    body += '<h3>Extras</h3><div class="card">';
+    extras.forEach(x=>{
+      body += '<div class="item'+(x.doc.checked?" done":"")+'">'
+        + '<button class="cb" data-tickx="'+x.id+'">'+(x.doc.checked?"✓":"")+'</button>'
+        + '<div class="txt">'+esc(x.doc.text)+'</div>'
+        + '<button class="del" data-delx="'+x.id+'">×</button></div>';
+    });
+    body += '</div>';
+  }
+  view.innerHTML = html + '<div class="aisle">'+body+'</div>' + extraForm();
+  bindShopping();
+}
+function extraForm(){
+  return '<form class="row" id="extraForm" style="margin-top:16px;gap:8px">'
+    + '<input type="text" id="extraInput" placeholder="Add something else…">'
+    + '<button class="btn" type="submit">Add</button></form>';
+}
+function bindShopping(){
+  const f=document.getElementById("extraForm"); if(!f) return;
+  f.addEventListener("submit", e=>{
+    e.preventDefault();
+    const inp=document.getElementById("extraInput"), v=inp.value.trim();
+    if(!v) return;
+    put("extra", uid("x-"), {week, text:v, checked:false, order:Date.now()});
+    renderShopping();
+    const n=document.getElementById("extraInput"); if(n) n.focus();
+  });
+}
+
+/* =========================================================
+   8. Sheets
+   ========================================================= */
+function closeModal(){ modal.innerHTML=""; }
+function sheet(title, bodyHTML){
+  modal.innerHTML = '<div class="overlay" data-overlay><div class="sheet">'
+    + '<div class="sheethead"><h2>'+title+'</h2><button class="btn sm ghost" data-close>Close</button></div>'
+    + '<div class="sheetbody">'+bodyHTML+'</div></div></div>';
+}
+
+function openRecipe(id){
+  const r=recipeById(id); if(!r) return;
+  const d=r.doc;
+  let h='<div class="row wrap small muted" style="gap:10px;margin-bottom:14px"><span>Serves '+d.servings+'</span><span>·</span><span>'+d.time+' min</span>'
+    +(d.batch?'<span class="pill green">Batch friendly</span>':"")+'</div>';
+  h += '<label class="f">Ingredients</label><div style="margin-bottom:18px">'
+    + d.ingredients.map(i=>'<div class="ingline"><span style="min-width:76px;font-weight:700">'+prettyQty(i.qty,i.unit)+'</span><span>'+esc(i.item)+'</span></div>').join("")
+    + '</div><label class="f">Method</label><ol class="method">'
+    + d.steps.map(s=>'<li>'+esc(s.text)+(s.mins?'<span class="t">'+s.mins+' min</span>':"")+'</li>').join("")
+    + '</ol>';
+  h += '<div class="row wrap" style="margin-top:18px;gap:8px">'
+    + '<button class="btn" data-act="editrecipe" data-id="'+r.id+'">Edit</button>'
+    + '<div class="sp"></div><button class="btn danger" data-act="delrecipe" data-id="'+r.id+'">Delete</button></div>';
+  sheet(esc(d.name), h);
+}
+
+let pickTarget=null;
+function openPicker(dateISO, slot){
+  pickTarget={dateISO,slot};
+  const d=parseISO(dateISO);
+  sheet(DAYNAMES[(d.getDay()+6)%7]+" "+slot,
+    '<input type="search" id="psearch" placeholder="Search…" style="margin-bottom:12px">'
+    + '<div class="row small muted" style="margin-bottom:12px">Servings<input type="number" id="pserv" min="1" max="20" value="'+household()+'" style="width:74px"></div>'
+    + '<div id="plist"></div>');
+  const draw=()=>{
+    const q=(document.getElementById("psearch").value||"").toLowerCase();
+    const list=recipes().filter(r=>!q||r.doc.name.toLowerCase().includes(q));
+    document.getElementById("plist").innerHTML = list.length
+      ? '<div class="rgrid">'+list.map(r=>'<button class="rcard" data-pick="'+r.id+'"><h3>'+esc(r.doc.name)+'</h3><div class="small muted">Serves '+r.doc.servings+' · '+r.doc.time+' min</div></button>').join("")+'</div>'
+      : '<div class="empty">No recipes match.</div>';
+  };
+  draw();
+  document.getElementById("psearch").addEventListener("input", draw);
+}
+
+let draft=null, draftId=null;
+function openEditor(id){
+  if(id){ draftId=id; draft=JSON.parse(JSON.stringify(recipeById(id).doc)); }
+  else{ draftId=null; draft={name:"",servings:4,time:30,batch:false,tags:[],ingredients:[{qty:"",unit:"",item:"",aisle:"Produce"}],steps:[{text:"",mins:""}]}; }
+  drawEditor();
+}
+function drawEditor(){
+  const r=draft;
+  const unitOpts=u=>UNITS.map(x=>'<option value="'+x+'"'+(x===u?" selected":"")+'>'+(x||"—")+'</option>').join("");
+  const aisleOpts=a=>AISLES.map(x=>'<option value="'+x+'"'+(x===a?" selected":"")+'>'+x+'</option>').join("");
+  let h='<div class="grid2" style="margin-bottom:10px">'
+    + '<div style="grid-column:1/-1"><label class="f">Name</label><input type="text" data-d="name" value="'+esc(r.name)+'" placeholder="Spaghetti bolognese"></div>'
+    + '<div><label class="f">Serves</label><input type="number" min="1" data-d="servings" value="'+r.servings+'"></div>'
+    + '<div><label class="f">Minutes</label><input type="number" min="1" data-d="time" value="'+r.time+'"></div>'
+    + '<div style="grid-column:1/-1"><label class="f">Tags</label><input type="text" data-d="tags" value="'+esc((r.tags||[]).join(", "))+'" placeholder="quick, veggie"></div></div>'
+    + '<label class="row small" style="gap:8px;margin-bottom:18px"><input type="checkbox" data-d="batch" '+(r.batch?"checked":"")+' style="width:auto"> Good for batch cooking</label>'
+    + '<label class="f">Ingredients</label>';
+  r.ingredients.forEach((i,n)=>{
+    h += '<div class="fieldrow"><input type="number" step="any" placeholder="Qty" value="'+(i.qty==null?"":i.qty)+'" data-ing="'+n+'" data-k="qty" style="width:70px">'
+      + '<select data-ing="'+n+'" data-k="unit" style="width:86px">'+unitOpts(i.unit)+'</select>'
+      + '<input type="text" placeholder="Ingredient" value="'+esc(i.item)+'" data-ing="'+n+'" data-k="item">'
+      + '<select data-ing="'+n+'" data-k="aisle" style="width:126px">'+aisleOpts(i.aisle)+'</select>'
+      + '<button class="btn sm ghost" data-rmi="'+n+'">×</button></div>';
+  });
+  h += '<button class="btn sm" data-addi style="margin:4px 0 18px">+ Ingredient</button><label class="f">Method</label>';
+  r.steps.forEach((s,n)=>{
+    h += '<div class="fieldrow"><div class="stepnum">'+(n+1)+'</div>'
+      + '<textarea rows="2" placeholder="What to do" data-step="'+n+'" data-k="text">'+esc(s.text)+'</textarea>'
+      + '<input type="number" min="0" placeholder="min" value="'+(s.mins||"")+'" data-step="'+n+'" data-k="mins" style="width:66px">'
+      + '<button class="btn sm ghost" data-rms="'+n+'">×</button></div>';
+  });
+  h += '<button class="btn sm" data-adds style="margin:4px 0 20px">+ Step</button>'
+    + '<div class="row"><button class="btn primary" data-act="saverecipe">Save recipe</button><button class="btn ghost" data-close>Cancel</button></div>'
+    + '<p class="tiny muted" style="margin-top:12px">Minutes on a step are optional — they power the cook-along timers.</p>';
+  sheet(draftId?"Edit recipe":"New recipe", h);
+
+  modal.querySelectorAll("[data-d]").forEach(el=>el.addEventListener("change",()=>{
+    const k=el.dataset.d;
+    if(k==="batch") draft.batch=el.checked;
+    else if(k==="tags") draft.tags=el.value.split(",").map(s=>s.trim()).filter(Boolean);
+    else if(k==="servings"||k==="time") draft[k]=Number(el.value)||1;
+    else draft[k]=el.value;
+  }));
+  modal.querySelectorAll("[data-ing]").forEach(el=>el.addEventListener("change",()=>{
+    const i=Number(el.dataset.ing), k=el.dataset.k;
+    draft.ingredients[i][k] = (k==="qty") ? (el.value===""?null:Number(el.value)) : el.value;
+  }));
+  modal.querySelectorAll("[data-step]").forEach(el=>el.addEventListener("change",()=>{
+    const i=Number(el.dataset.step), k=el.dataset.k;
+    draft.steps[i][k] = (k==="mins") ? (el.value===""?"":Number(el.value)) : el.value;
+  }));
+}
+function commitInputs(){ modal.querySelectorAll("[data-d],[data-ing],[data-step]").forEach(el=>el.dispatchEvent(new Event("change"))); }
+function saveRecipe(){
+  commitInputs();
+  if(!draft.name.trim()){ toast("Give the recipe a name"); return; }
+  draft.ingredients = draft.ingredients.filter(i=>i.item.trim());
+  draft.steps = draft.steps.filter(s=>s.text.trim());
+  put("recipe", draftId || uid("r-"), draft);
+  closeModal(); render(); toast("Saved");
+}
+
+/* ---- sharing / setup ---- */
+const SQL = `create table if not exists public.items (
+  id         text primary key,
+  household  text not null,
+  kind       text not null,
+  doc        jsonb not null default '{}'::jsonb,
+  deleted    boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+create index if not exists items_hh_upd on public.items (household, updated_at);
+
+create or replace function public.touch_items() returns trigger as $$
+begin new.updated_at = now(); return new; end;
+$$ language plpgsql;
+
+drop trigger if exists items_touch on public.items;
+create trigger items_touch before insert or update on public.items
+  for each row execute function public.touch_items();
+
+alter table public.items enable row level security;
+drop policy if exists items_read   on public.items;
+drop policy if exists items_write  on public.items;
+drop policy if exists items_modify on public.items;
+create policy items_read   on public.items for select to anon using (true);
+create policy items_write  on public.items for insert to anon with check (true);
+create policy items_modify on public.items for update to anon using (true) with check (true);
+grant select, insert, update on public.items to anon;`;
+
+function openSharing(){
+  const on = connected();
+  let h = '<div class="note" style="margin-bottom:16px">'
+    + (on ? 'Sharing is <b>on</b>. Anyone with the invite link can see and edit your plan, so only send it to people you want in it.'
+          : 'Right now this is a private planner in this browser. Connect it once and you and your wife share one plan across both phones.')
+    + '</div>';
+
+  if(on){
+    h += '<label class="f">Invite link — send this to her</label>'
+      + '<input type="text" id="invite" readonly value="'+esc(inviteLink())+'" style="margin-bottom:8px">'
+      + '<div class="row wrap" style="gap:8px;margin-bottom:22px">'
+      + '<button class="btn primary" data-act="copyinvite">Copy invite link</button>'
+      + '<button class="btn" data-act="synctest">Test now</button>'
+      + '<div class="sp"></div><button class="btn danger" data-act="disconnect">Disconnect</button></div>';
+    if(syncState==="err") h += '<div class="note" style="background:transparent;border:1px solid var(--red);color:var(--red);margin-bottom:18px">'+esc(syncMsg||"Sync failed")+'</div>';
+  }
+
+  if(!on){
+    h += '<label class="f">Been sent an invite link?</label>'
+      + '<div class="row" style="gap:8px;margin-bottom:8px"><input type="text" id="joinLink" placeholder="Paste the link here">'
+      + '<button class="btn primary" data-act="join" style="white-space:nowrap">Join</button></div>'
+      + '<p class="tiny muted" style="margin:0 0 22px">That is all you need — everything below is for whoever sets it up first.</p>';
+  }
+
+  h += '<label class="f">'+(on?"Connection":"Connect to Supabase")+'</label>'
+    + '<div style="margin-bottom:10px"><input type="url" id="cfgUrl" placeholder="https://xxxx.supabase.co" value="'+esc(cfg.url)+'"></div>'
+    + '<div style="margin-bottom:10px"><input type="text" id="cfgKey" placeholder="anon public key" value="'+esc(cfg.key)+'"></div>'
+    + '<div style="margin-bottom:10px"><input type="text" id="cfgHh" placeholder="household code" value="'+esc(cfg.hh||("hh-"+Math.random().toString(36).slice(2,12)))+'"></div>'
+    + '<div class="row" style="gap:8px;margin-bottom:22px"><button class="btn primary" data-act="saveconn">Connect</button></div>';
+
+  h += '<details style="margin-bottom:8px"><summary class="small muted" style="cursor:pointer;margin-bottom:10px">First time? Database setup SQL</summary>'
+    + '<p class="small muted">In your Supabase project open <b>SQL Editor</b>, paste this, and press Run. You only ever do this once.</p>'
+    + '<pre class="sql">'+esc(SQL)+'</pre>'
+    + '<button class="btn sm" data-act="copysql" style="margin-top:10px">Copy SQL</button></details>';
+
+  sheet("Sharing &amp; sync", h);
+}
+
+function toast(msg){
+  const t=document.createElement("div"); t.className="toast"; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2400);
+}
+function copyText(txt, okMsg){
+  const done=()=>toast(okMsg||"Copied");
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(txt).then(done).catch(()=>fallback());
+  } else fallback();
+  function fallback(){
+    const ta=document.createElement("textarea");
+    ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); done(); }catch(e){ toast("Couldn't copy — select it manually"); }
+    ta.remove();
+  }
+}
+function listAsText(){
+  const items=buildList(week), extras=extrasFor(week), lines=[];
+  let cur=null;
+  items.forEach(i=>{
+    if(i.aisle!==cur){ cur=i.aisle; lines.push(""); lines.push(cur.toUpperCase()); }
+    lines.push((i.done?"[x] ":"[ ] ")+(prettyQty(i.qty,i.unit,true)+" "+i.item).trim());
+  });
+  if(extras.length){ lines.push(""); lines.push("EXTRAS"); extras.forEach(x=>lines.push((x.doc.checked?"[x] ":"[ ] ")+x.doc.text)); }
+  const d=weekDates(week);
+  return "Shopping — "+fmtShort(d[0])+" to "+fmtShort(d[6])+"\n"+lines.join("\n").trim();
+}
+function openMenu(){
+  const m=document.createElement("div");
+  m.className="card menu";
+  m.innerHTML = '<button data-act="sharing">Sharing &amp; sync…</button>'
+    + '<button data-act="household">Default servings: '+household()+'</button>'
+    + '<button data-act="export">Export backup</button>'
+    + '<button data-act="import">Import backup</button>'
+    + '<button data-act="reset">Reset this device</button>';
+  document.body.appendChild(m);
+  setTimeout(()=>document.addEventListener("click", function h(e){
+    if(!m.contains(e.target)){ m.remove(); document.removeEventListener("click",h); }
+  }),0);
+}
+const closeMenu = () => document.querySelectorAll(".menu").forEach(m=>m.remove());
+
+/* =========================================================
+   9. Events
+   ========================================================= */
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); }));
+document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagation(); openMenu(); });
+document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
+
+document.addEventListener("click", e=>{
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms]");
+  if(!t) return;
+  if(t.hasAttribute("data-overlay") && e.target===t){ closeModal(); return; }
+  if(t.hasAttribute("data-close")){ closeModal(); return; }
+
+  if(t.dataset.week!==undefined){
+    const n=Number(t.dataset.week);
+    week = n===0 ? iso(mondayOf(new Date())) : iso(addDays(parseISO(week), n*7));
+    render(); window.scrollTo(0,0); return;
+  }
+  if(t.dataset.add){ const [d,s]=t.dataset.add.split("|"); openPicker(d,s); return; }
+  if(t.dataset.delmeal){ drop(t.dataset.delmeal); render(); return; }
+  if(t.dataset.openrecipe){ openRecipe(t.dataset.openrecipe); return; }
+  if(t.dataset.pick){
+    const serv=Number(document.getElementById("pserv").value)||household();
+    put("meal", uid("m-"), {date:pickTarget.dateISO, slot:pickTarget.slot, recipeId:t.dataset.pick, servings:serv, order:Date.now()});
+    closeModal(); render(); return;
+  }
+  if(t.dataset.tick){ const id=tickId(week,t.dataset.tick); put("tick", id, {week, key:t.dataset.tick, on:!isOn(id)}); renderShopping(); return; }
+  if(t.dataset.hide){ put("hide", hideId(week,t.dataset.hide), {week, key:t.dataset.hide, on:true}); renderShopping(); return; }
+  if(t.dataset.tickx){ const x=get(t.dataset.tickx); if(x) put("extra", x.id, Object.assign({},x.doc,{checked:!x.doc.checked})); renderShopping(); return; }
+  if(t.dataset.delx){ drop(t.dataset.delx); renderShopping(); return; }
+  if(t.hasAttribute("data-addi")){ commitInputs(); draft.ingredients.push({qty:"",unit:"",item:"",aisle:"Produce"}); drawEditor(); return; }
+  if(t.hasAttribute("data-adds")){ commitInputs(); draft.steps.push({text:"",mins:""}); drawEditor(); return; }
+  if(t.hasAttribute("data-rmi")){ commitInputs(); draft.ingredients.splice(Number(t.dataset.rmi),1); drawEditor(); return; }
+  if(t.hasAttribute("data-rms")){ commitInputs(); draft.steps.splice(Number(t.dataset.rms),1); drawEditor(); return; }
+
+  const act=t.dataset.act; if(!act) return;
+  if(act==="newrecipe") openEditor(null);
+  else if(act==="editrecipe") openEditor(t.dataset.id);
+  else if(act==="saverecipe") saveRecipe();
+  else if(act==="delrecipe"){
+    if(confirm("Delete this recipe? Any planned meals using it will disappear.")){
+      drop(t.dataset.id); closeModal(); render();
+    }
+  }
+  else if(act==="clearweek"){
+    if(confirm("Clear every meal from this week?")){ weekMeals(week).forEach(m=>drop(m.id)); render(); }
+  }
+  else if(act==="copylast"){
+    const prevDays=weekDates(iso(addDays(parseISO(week),-7))).map(iso);
+    const src=all("meal").filter(m=>prevDays.includes(m.doc.date));
+    src.forEach(m=>{
+      const offset = prevDays.indexOf(m.doc.date);
+      put("meal", uid("m-"), Object.assign({}, m.doc, {date: iso(addDays(parseISO(week), offset)), order:Date.now()+offset}));
+    });
+    render(); toast(src.length?("Copied "+src.length+" "+plural(src.length,"meal")):"Last week was empty");
+  }
+  else if(act==="copylist") copyText(listAsText(), "List copied");
+  else if(act==="resetlist"){
+    all("tick").filter(i=>i.doc.week===week).forEach(i=>drop(i.id));
+    all("hide").filter(i=>i.doc.week===week).forEach(i=>drop(i.id));
+    renderShopping();
+  }
+  else if(act==="sharing"){ closeMenu(); openSharing(); }
+  else if(act==="household"){
+    const v=prompt("How many people are you usually cooking for?", household());
+    if(v){ put("setting","setting:household",{value:Math.max(1,Number(v)||2)}); toast("Default set to "+household()); }
+    closeMenu();
+  }
+  else if(act==="saveconn"){
+    cfg.url=document.getElementById("cfgUrl").value.trim();
+    cfg.key=document.getElementById("cfgKey").value.trim();
+    cfg.hh =document.getElementById("cfgHh").value.trim();
+    if(!cfg.url||!cfg.key||!cfg.hh){ toast("Fill in all three"); return; }
+    saveCfg();
+    Object.keys(S.items).forEach(id=>{ S.pending[id]=1; });   // upload what's already here
+    S.watermark=null; saveLocal();
+    setSync("busy");
+    sync().then(()=>{ openSharing(); if(syncState==="ok") toast("Connected — now send her the invite link"); });
+  }
+  else if(act==="join"){
+    const v=document.getElementById("joinLink").value;
+    if(!applyInvite(v)){ toast("That doesn't look like an invite link"); return; }
+    S.seeded=true;                                       // take theirs, don't add samples
+    Object.keys(S.items).forEach(id=>{ S.pending[id]=1; });
+    saveLocal(); setSync("busy");
+    sync().then(()=>{ closeModal(); render(); toast(syncState==="ok"?"Joined — you're both on the same plan":"Couldn't reach it, check the link"); });
+  }
+  else if(act==="synctest"){ sync().then(()=>{ openSharing(); toast(syncState==="ok"?"All good":"Still failing"); }); }
+  else if(act==="copyinvite") copyText(inviteLink(), "Invite link copied");
+  else if(act==="copysql") copyText(SQL, "SQL copied");
+  else if(act==="disconnect"){
+    if(confirm("Stop syncing on this device? Your plan stays here but changes will no longer be shared.")){
+      cfg={url:"",key:"",hh:""}; saveCfg(); clearInterval(syncTimer); setSync("off"); closeModal();
+    }
+  }
+  else if(act==="export"){
+    const blob=new Blob([JSON.stringify({items:S.items},null,2)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob); a.download="meal-plan-backup-"+iso(new Date())+".json"; a.click();
+    URL.revokeObjectURL(a.href); closeMenu();
+  }
+  else if(act==="import"){
+    const inp=document.createElement("input"); inp.type="file"; inp.accept="application/json";
+    inp.onchange=()=>{
+      const f=inp.files[0]; if(!f) return;
+      const rd=new FileReader();
+      rd.onload=()=>{
+        try{
+          const p=JSON.parse(rd.result);
+          const items=p.items||p;
+          if(typeof items!=="object") throw new Error("bad");
+          Object.keys(items).forEach(id=>{ S.items[id]=items[id]; S.pending[id]=1; });
+          saveLocal(); render(); kick(); toast("Backup merged in");
+        }catch(err){ toast("That file didn't look right"); }
+      };
+      rd.readAsText(f);
+    };
+    inp.click(); closeMenu();
+  }
+  else if(act==="reset"){
+    if(confirm("Erase everything on this device? If sharing is on, it will download again from the shared copy.")){
+      S={items:{},pending:{},watermark:null,seeded:false};
+      lsSet(DATA_KEY, JSON.stringify(S));
+      if(connected()) sync().then(()=>{ maybeSeed(); render(); }); else { maybeSeed(); render(); }
+    }
+    closeMenu();
+  }
+});
+
+/* =========================================================
+   10. Sample recipes — stable ids so both devices converge
+   ========================================================= */
+function I(qty,unit,item,aisle){ return {qty,unit,item,aisle}; }
+function St(text,mins){ return {text,mins:mins||""}; }
+const SAMPLES = [
+ ["r-bolognese",{name:"Spaghetti bolognese",servings:4,time:50,batch:true,tags:["family","freezer"],
+  ingredients:[I(500,"g","beef mince","Meat & Fish"),I(1,"","onion","Produce"),I(2,"","carrots","Produce"),I(2,"clove","garlic","Produce"),I(2,"can","chopped tomatoes","Tins & Jars"),I(2,"tbsp","tomato purée","Tins & Jars"),I(400,"g","spaghetti","Dry Goods"),I(1,"tsp","dried oregano","Herbs & Spices"),I(50,"g","parmesan","Dairy & Eggs")],
+  steps:[St("Finely dice the onion and carrots, crush the garlic."),St("Soften the onion and carrot in oil over medium heat.",8),St("Add garlic and beef mince, brown all over breaking up lumps.",6),St("Stir in tomato purée and oregano, cook out for a minute.",1),St("Add chopped tomatoes, season, simmer uncovered until thick.",30),St("Boil the spaghetti in well-salted water.",10),St("Drain pasta, fold through the sauce, serve with parmesan.")]}],
+ ["r-fajitas",{name:"Chicken fajitas",servings:4,time:30,batch:false,tags:["quick"],
+  ingredients:[I(600,"g","chicken breast","Meat & Fish"),I(2,"","peppers","Produce"),I(1,"","red onion","Produce"),I(8,"","tortilla wraps","Bakery"),I(2,"tsp","smoked paprika","Herbs & Spices"),I(1,"tsp","ground cumin","Herbs & Spices"),I(1,"","lime","Produce"),I(150,"ml","soured cream","Dairy & Eggs"),I(1,"","avocado","Produce")],
+  steps:[St("Slice chicken, peppers and onion into strips."),St("Toss chicken with paprika, cumin, salt and a squeeze of lime."),St("Sear the chicken in a hot pan until coloured, then set aside.",7),St("Fry peppers and onion until charred at the edges.",6),St("Return chicken to the pan and toss together.",2),St("Warm the wraps and serve with soured cream and sliced avocado.",2)]}],
+ ["r-greencurry",{name:"Thai green chicken curry",servings:4,time:35,batch:false,tags:["spicy"],
+  ingredients:[I(600,"g","chicken thighs","Meat & Fish"),I(3,"tbsp","green curry paste","Tins & Jars"),I(400,"ml","coconut milk","Tins & Jars"),I(150,"g","green beans","Produce"),I(1,"","aubergine","Produce"),I(300,"g","jasmine rice","Dry Goods"),I(1,"tbsp","fish sauce","Tins & Jars"),I(1,"bunch","coriander","Produce")],
+  steps:[St("Rinse the rice and set it on to cook.",12),St("Fry the curry paste in a splash of coconut milk until fragrant.",2),St("Add sliced chicken thighs and coat in the paste.",4),St("Pour in the rest of the coconut milk and bring to a simmer.",3),St("Add chopped aubergine and beans, simmer until tender.",12),St("Season with fish sauce, scatter coriander, serve with rice.")]}],
+ ["r-chilli",{name:"Beef chilli",servings:6,time:70,batch:true,tags:["freezer","family"],
+  ingredients:[I(750,"g","beef mince","Meat & Fish"),I(2,"","onions","Produce"),I(3,"clove","garlic","Produce"),I(2,"can","chopped tomatoes","Tins & Jars"),I(1,"can","kidney beans","Tins & Jars"),I(2,"tbsp","chilli powder","Herbs & Spices"),I(1,"tbsp","ground cumin","Herbs & Spices"),I(1,"","beef stock cube","Dry Goods"),I(300,"g","long grain rice","Dry Goods")],
+  steps:[St("Dice the onions, crush the garlic."),St("Soften the onions in a large casserole.",8),St("Add garlic and spices, cook until aromatic.",2),St("Brown the mince thoroughly.",8),St("Add tomatoes, crumbled stock cube and a splash of water.",2),St("Simmer gently, stirring now and then.",40),St("Stir in the drained kidney beans and warm through.",5),St("Cook the rice and serve.",12)]}],
+ ["r-salmon",{name:"Salmon with roasted veg",servings:2,time:35,batch:false,tags:["quick","healthy"],
+  ingredients:[I(2,"","salmon fillets","Meat & Fish"),I(400,"g","new potatoes","Produce"),I(1,"","courgette","Produce"),I(200,"g","cherry tomatoes","Produce"),I(2,"tbsp","olive oil","Dry Goods"),I(1,"","lemon","Produce")],
+  steps:[St("Heat the oven to 200C fan.",10),St("Halve the potatoes, toss with oil and salt, roast.",20),St("Add courgette and tomatoes to the tray and roast again.",8),St("Lay the salmon on top, squeeze over lemon, roast until just cooked.",12),St("Rest for a couple of minutes and serve.",2)]}],
+ ["r-risotto",{name:"Mushroom risotto",servings:4,time:40,batch:false,tags:["veggie"],
+  ingredients:[I(300,"g","arborio rice","Dry Goods"),I(400,"g","chestnut mushrooms","Produce"),I(1,"","onion","Produce"),I(2,"clove","garlic","Produce"),I(150,"ml","white wine","Other"),I(1,"l","vegetable stock","Dry Goods"),I(60,"g","parmesan","Dairy & Eggs"),I(40,"g","butter","Dairy & Eggs"),I(1,"handful","parsley","Produce")],
+  steps:[St("Heat the stock and keep it at a bare simmer.",5),St("Fry the sliced mushrooms in butter until golden, set aside.",8),St("Soften the diced onion and garlic in the same pan.",6),St("Stir in the rice and toast until translucent at the edges.",2),St("Pour in the wine and let it bubble away.",2),St("Add stock a ladle at a time, stirring, until the rice is al dente.",18),St("Fold in mushrooms, parmesan and butter. Rest, covered.",3),St("Finish with chopped parsley and black pepper.")]}],
+ ["r-sausagestew",{name:"Sausage and butterbean stew",servings:4,time:45,batch:true,tags:["freezer","one pot"],
+  ingredients:[I(8,"","sausages","Meat & Fish"),I(1,"","onion","Produce"),I(2,"clove","garlic","Produce"),I(2,"can","butterbeans","Tins & Jars"),I(1,"can","chopped tomatoes","Tins & Jars"),I(1,"tsp","smoked paprika","Herbs & Spices"),I(200,"g","kale","Produce"),I(1,"","crusty loaf","Bakery")],
+  steps:[St("Brown the sausages all over in a casserole, then remove.",8),St("Soften the sliced onion and garlic in the sausage fat.",7),St("Stir in the paprika, then the tomatoes and drained butterbeans.",2),St("Return the sausages and simmer until thickened.",20),St("Stir the kale through until wilted.",4),St("Serve with plenty of bread.")]}],
+ ["r-chickpea",{name:"Chickpea and spinach curry",servings:4,time:30,batch:true,tags:["veggie","freezer","quick"],
+  ingredients:[I(2,"can","chickpeas","Tins & Jars"),I(200,"g","spinach","Produce"),I(1,"","onion","Produce"),I(3,"clove","garlic","Produce"),I(1,"tbsp","curry powder","Herbs & Spices"),I(1,"can","chopped tomatoes","Tins & Jars"),I(200,"ml","coconut milk","Tins & Jars"),I(300,"g","basmati rice","Dry Goods"),I(4,"","naan breads","Bakery")],
+  steps:[St("Set the rice on to cook.",12),St("Soften the diced onion.",6),St("Add garlic and curry powder, fry until fragrant.",2),St("Tip in the tomatoes, coconut milk and drained chickpeas.",2),St("Simmer until glossy and thickened.",12),St("Wilt in the spinach, season, serve with rice and naan.",3)]}],
+ ["r-lentilsoup",{name:"Lentil and bacon soup",servings:6,time:50,batch:true,tags:["freezer","lunch"],
+  ingredients:[I(300,"g","red lentils","Dry Goods"),I(200,"g","smoked bacon","Meat & Fish"),I(2,"","carrots","Produce"),I(2,"","celery sticks","Produce"),I(1,"","onion","Produce"),I(1.5,"l","chicken stock","Dry Goods"),I(1,"","crusty loaf","Bakery")],
+  steps:[St("Chop the bacon and vegetables into small dice."),St("Render the bacon until crisp at the edges.",7),St("Add onion, carrot and celery and sweat until soft.",10),St("Stir in the rinsed lentils and the stock.",2),St("Simmer until the lentils collapse, stirring occasionally.",25),St("Season well, blend a little if you like it smoother, serve with bread.")]}]
+];
+function maybeSeed(){
+  if(S.seeded) return;
+  if(all("recipe").length===0) SAMPLES.forEach(([id,doc])=>put("recipe", id, doc));
+  S.seeded = true; saveLocal();
+}
+
+/* =========================================================
+   11. Boot
+   ========================================================= */
+const invited = readInvite();
+if(connected()){
+  setSync("busy");
+  startSync();                      // seeds after first successful pull if empty
+  if(invited) setTimeout(()=>toast("Connected to your shared plan"), 600);
+}else{
+  maybeSeed();
+  setSync("off");
+}
+render();
+if(!storageOK) setTimeout(()=>toast("This browser won't let the app save — try a normal (non-private) window"), 800);
+
+if("serviceWorker" in navigator && location.protocol.startsWith("http")){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+</script>
+</body>
+</html>
