@@ -1,7 +1,7 @@
 /* Meal Plan — offline shell.
    Keeps the app openable in a supermarket with one bar of signal.
    Data still comes from the network; only the app itself is cached. */
-const CACHE = "mealplan-v1";
+const CACHE = "mealplan-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
@@ -29,6 +29,23 @@ self.addEventListener("fetch", e => {
   if (url.pathname.includes("/rest/v1/") || url.search) return;
   // Only the app shell itself is cacheable.
   if (req.mode !== "navigate" && !SHELL_PATHS.has(url.pathname)) return;
+
+  // The page itself is network-first, so a new version is never a refresh
+  // behind. The cache is only there for when there's no signal.
+  if (req.mode === "navigate") {
+    e.respondWith(
+      fetch(req)
+        .then(res => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req).then(hit => hit || caches.match("./index.html")))
+    );
+    return;
+  }
 
   // Stale-while-revalidate: instant load, quietly picks up new versions.
   e.respondWith(
