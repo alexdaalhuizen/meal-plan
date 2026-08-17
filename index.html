@@ -217,6 +217,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
+const APP_VERSION = "2026.08.17";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -1143,7 +1144,9 @@ function openMenu(){
     + '<button data-act="household">Default servings: '+household()+'</button>'
     + '<button data-act="export">Export backup</button>'
     + '<button data-act="import">Import backup</button>'
-    + '<button data-act="reset">Reset this device</button>';
+    + '<button data-act="reset">Reset this device</button>'
+    + '<button data-act="update">Check for update</button>'
+    + '<div class="tiny muted" style="padding:6px 11px 4px">Version '+APP_VERSION+'</div>';
   document.body.appendChild(m);
   setTimeout(()=>document.addEventListener("click", function h(e){
     if(!m.contains(e.target)){ m.remove(); document.removeEventListener("click",h); }
@@ -1217,6 +1220,21 @@ document.addEventListener("click", e=>{
     all("tick").filter(i=>i.doc.week===week).forEach(i=>drop(i.id));
     all("hide").filter(i=>i.doc.week===week).forEach(i=>drop(i.id));
     renderShopping();
+  }
+  else if(act==="update"){
+    /* Phones can sit on a cached copy for days. This throws the cache away
+       and fetches the page fresh — the reliable way to pull in a new build. */
+    closeMenu(); toast("Fetching the latest version…");
+    (async()=>{
+      try{
+        if(window.caches){ const keys = await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
+        if(navigator.serviceWorker){
+          const reg = await navigator.serviceWorker.getRegistration();
+          if(reg) await reg.update();
+        }
+      }catch(e){ console.warn("update", e); }
+      setTimeout(()=>location.reload(true), 700);
+    })();
   }
   else if(act==="rotation"){ closeMenu(); openRotation(); }
   else if(act==="refillnow" || act==="refillnext"){
