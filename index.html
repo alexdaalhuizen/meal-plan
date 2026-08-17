@@ -116,6 +116,13 @@ label.f{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin
 .meal .x:hover{color:var(--red)}
 .addslot{width:100%;border:1px dashed var(--line);background:none;color:var(--muted);border-radius:9px;padding:6px;font-size:13px;font-weight:600}
 .addslot:hover{border-color:var(--accent);color:var(--accent);border-style:solid}
+.addslot.ghostadd{border:0;color:var(--muted);opacity:.6;font-size:12px;margin-top:7px;padding:3px}
+.addslot.ghostadd:hover{opacity:1;color:var(--green)}
+.batchslot .slotlabel{color:var(--green)}
+.batchslot .meal{background:var(--green-soft);border-color:transparent}
+.meal.frozen{background:transparent;border-style:dashed}
+.meal .snow{color:#4a90c2;margin-right:4px}
+@media (prefers-color-scheme:dark){.meal .snow{color:#7cc0e8}}
 
 .rgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
 .rcard{padding:14px;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);width:100%}
@@ -215,6 +222,8 @@ const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
 const UNITS  = ["","g","kg","ml","l","tsp","tbsp","clove","can","pack","bunch","handful","slice"];
 const DAYNAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const SLOTS = ["lunch","dinner","batch"];
+const SLOT_LABEL = { lunch:"Lunch", dinner:"Dinner", batch:"Batch cook" };
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 const uid = p => (p||"") + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
@@ -352,7 +361,7 @@ async function sync(quiet){
     await push();
     await pull();
     setSync("ok");
-    ensureRecipes();
+    ensureRecipes(); ensureRotation();
   }catch(e){
     // A flat "no internet" isn't a fault worth alarming anyone about.
     setSync(navigator.onLine ? "err" : "offline", e.message);
@@ -516,6 +525,7 @@ const isOn = id => { const i=get(id); return !!(i && i.doc.on); };
 function buildList(w){
   const map = new Map();
   weekMeals(w).forEach(m=>{
+    if(m.doc.frozen) return;              // already in the freezer — nothing to buy
     const r = recipeById(m.doc.recipeId); if(!r) return;
     const factor = (m.doc.servings || r.doc.servings) / (r.doc.servings || 1);
     r.doc.ingredients.forEach(ing=>{
@@ -571,18 +581,23 @@ function renderPlan(){
     const ds=iso(d);
     html += '<div class="card day'+(ds===today?" today":"")+'">'
       + '<div class="dayhead"><span class="dayname">'+DAYNAMES[i]+'</span><span class="daydate">'+fmtShort(d)+'</span></div>';
-    ["lunch","dinner"].forEach(slot=>{
-      html += '<div class="slot"><div class="slotlabel">'+slot+'</div>';
-      mealsOn(ds,slot).forEach(m=>{
+    SLOTS.forEach(slot=>{
+      const entries = mealsOn(ds,slot);
+      // The batch row only takes up space on days you're actually batch cooking.
+      if(slot==="batch" && !entries.length) return;
+      html += '<div class="slot'+(slot==="batch"?" batchslot":"")+'"><div class="slotlabel">'+SLOT_LABEL[slot]+'</div>';
+      entries.forEach(m=>{
         const r = recipeById(m.doc.recipeId);
         if(!r) return;
-        html += '<div class="meal">'
-          + '<button class="nm" data-openrecipe="'+r.id+'">'+esc(r.doc.name)+'</button>'
+        html += '<div class="meal'+(m.doc.frozen?" frozen":"")+'">'
+          + '<button class="nm" data-openrecipe="'+r.id+'">'+(m.doc.frozen?'<span class="snow">❄</span>':"")+esc(r.doc.name)+'</button>'
           + '<span class="sv">'+m.doc.servings+'</span>'
           + '<button class="x" data-delmeal="'+m.id+'" aria-label="Remove">×</button></div>';
       });
       html += '<button class="addslot" data-add="'+ds+"|"+slot+'">+ Add</button></div>';
     });
+    if(!mealsOn(ds,"batch").length)
+      html += '<button class="addslot ghostadd" data-add="'+ds+'|batch">+ Batch cook</button>';
     html += '</div>';
   });
   html += '</div>';
@@ -750,9 +765,14 @@ let pickTarget=null;
 function openPicker(dateISO, slot){
   pickTarget={dateISO,slot};
   const d=parseISO(dateISO);
-  sheet(DAYNAMES[(d.getDay()+6)%7]+" "+slot,
+  const isBatch = slot==="batch";
+  sheet(DAYNAMES[(d.getDay()+6)%7]+" · "+SLOT_LABEL[slot],
     '<input type="search" id="psearch" placeholder="Search…" style="margin-bottom:12px">'
-    + '<div class="row small muted" style="margin-bottom:12px">Servings<input type="number" id="pserv" min="1" max="20" value="'+household()+'" style="width:74px"></div>'
+    + '<div class="row wrap small muted" style="margin-bottom:12px;gap:10px">'
+    + '<span class="row" style="gap:6px">Servings<input type="number" id="pserv" min="1" max="20" value="'+(isBatch?4:household())+'" style="width:70px"></span>'
+    + '<label class="row" style="gap:6px"><input type="checkbox" id="pfrozen" style="width:auto"> ❄ From the freezer</label>'
+    + '</div>'
+    + (isBatch?'<p class="tiny muted" style="margin:-4px 0 12px">Cook the full batch — set servings to everything you\'re making, including what goes in the freezer.</p>':"")
     + '<div id="plist"></div>');
   const draw=()=>{
     const q=(document.getElementById("psearch").value||"").toLowerCase();
@@ -1019,6 +1039,18 @@ function openHelp(){
   </div>
 
   <div class="helpsec">
+    <h3>Batch cooking and the freezer</h3>
+    <p>Each day has a third slot, <b>Batch cook</b>, which only appears once you've put something in it — otherwise there's a faint <i>+ Batch cook</i> link at the bottom of the day. Use it for the big weekend cooks, and set servings to the <b>whole batch</b>, including the portions destined for the freezer. That way the shopping list buys enough.</p>
+    <p>When you eat one of those portions weeks later, add the meal as normal but tick <b>❄ From the freezer</b> in the picker. It shows on the plan with a snowflake and contributes <b>nothing</b> to that week's shopping list, because you already bought it.</p>
+  </div>
+
+  <div class="helpsec">
+    <h3>Your three-week rotation</h3>
+    <p>Gear → <b>Meal rotation</b> shows the three-week cycle the app was set up with, and lets you lay it out again from this Monday or the next. It fills six weeks at a time, which is two full cycles.</p>
+    <p>Nothing runs automatically after that first fill, so any week you change stays changed. When you get near the end, open the rotation and refill — it writes over the weeks ahead, so do it from a week you haven't customised.</p>
+  </div>
+
+  <div class="helpsec">
     <h3>How the shopping list is worked out</h3>
     <p>Every ingredient of every meal that week is scaled by servings, then identical ingredients are merged into one line. A recipe serving four, planned for two, contributes half of everything.</p>
     <p>Units are converted before merging, so a tablespoon in one recipe and a teaspoon in another add up properly, and grams roll into kilograms once they pass a thousand. Anything you can only buy whole — tins, packs, avocados — rounds up, because half a tin isn't a thing.</p>
@@ -1105,7 +1137,8 @@ function listAsText(){
 function openMenu(){
   const m=document.createElement("div");
   m.className="card menu";
-  m.innerHTML = '<button data-act="help">How it works…</button>'
+  m.innerHTML = '<button data-act="rotation">Meal rotation…</button>'
+    + '<button data-act="help">How it works…</button>'
     + '<button data-act="sharing">Sharing &amp; sync…</button>'
     + '<button data-act="household">Default servings: '+household()+'</button>'
     + '<button data-act="export">Export backup</button>'
@@ -1144,7 +1177,9 @@ document.addEventListener("click", e=>{
   if(t.dataset.openrecipe){ openRecipe(t.dataset.openrecipe); return; }
   if(t.dataset.pick){
     const serv=Number(document.getElementById("pserv").value)||household();
-    put("meal", uid("m-"), {date:pickTarget.dateISO, slot:pickTarget.slot, recipeId:t.dataset.pick, servings:serv, order:Date.now()});
+    const frozen=document.getElementById("pfrozen").checked;
+    put("meal", uid("m-"), {date:pickTarget.dateISO, slot:pickTarget.slot, recipeId:t.dataset.pick,
+                            servings:serv, order:Date.now(), frozen:frozen});
     closeModal(); render(); return;
   }
   if(t.dataset.tick){ const id=tickId(week,t.dataset.tick); put("tick", id, {week, key:t.dataset.tick, on:!isOn(id)}); renderShopping(); return; }
@@ -1182,6 +1217,21 @@ document.addEventListener("click", e=>{
     all("tick").filter(i=>i.doc.week===week).forEach(i=>drop(i.id));
     all("hide").filter(i=>i.doc.week===week).forEach(i=>drop(i.id));
     renderShopping();
+  }
+  else if(act==="rotation"){ closeMenu(); openRotation(); }
+  else if(act==="refillnow" || act==="refillnext"){
+    const anchor = act==="refillnow" ? iso(mondayOf(new Date())) : iso(addDays(mondayOf(new Date()),7));
+    const n = fillRotation(anchor, ROTATION_WEEKS);
+    closeModal(); week = anchor; tab="plan"; render(); window.scrollTo(0,0);
+    toast("Filled "+ROTATION_WEEKS+" weeks — "+n+" meals");
+  }
+  else if(act==="clearrotation"){
+    const v = get("setting:rotation");
+    const anchor = v ? v.doc.anchor : iso(mondayOf(new Date()));
+    if(confirm("Clear every planned meal for those "+ROTATION_WEEKS+" weeks?")){
+      const n = clearRotation(anchor, ROTATION_WEEKS);
+      closeModal(); render(); toast("Cleared "+n+" meals");
+    }
   }
   else if(act==="help"){ closeMenu(); openHelp(); }
   else if(act==="replaywelcome"){ closeModal(); openWelcome(); }
@@ -1248,7 +1298,7 @@ document.addEventListener("click", e=>{
     if(confirm("Erase everything on this device? If sharing is on, it will download again from the shared copy.")){
       S={items:{},pending:{},watermark:null,seeded:false};
       lsSet(DATA_KEY, JSON.stringify(S));
-      if(connected()) sync().then(()=>{ ensureRecipes(); render(); }); else { ensureRecipes(); render(); }
+      if(connected()) sync().then(()=>{ ensureRecipes(); ensureRotation(); render(); }); else { ensureRecipes(); ensureRotation(); render(); }
     }
     closeMenu();
   }
@@ -1919,6 +1969,94 @@ function ensureRecipes(){
 }
 
 /* =========================================================
+   10b. The three-week rotation
+   [day 0=Mon, slot, recipe, servings, from the freezer?]
+   ========================================================= */
+const ROTATION = [
+  [ [0,"dinner","r-taco-beef-pasta",2,false],
+    [1,"dinner","r-tuscan-chicken",2,false],
+    [2,"dinner","r-seabass-orzo",2,false],
+    [3,"dinner","r-fajita-rice-bowls",2,false],
+    [4,"dinner","r-teriyaki-salmon",2,false],
+    [5,"batch","r-tikka-masala",4,false],
+    [6,"batch","r-beef-bean-chilli",6,false] ],
+  [ [0,"dinner","r-tikka-masala",2,true],
+    [1,"dinner","r-korean-beef",2,false],
+    [2,"dinner","r-salmon-orzo",2,false],
+    [3,"dinner","r-cajun-chicken-pasta",2,false],
+    [4,"dinner","r-shawarma-flatbreads",2,false],
+    [5,"batch","r-chicken-meatballs",4,false],
+    [6,"batch","r-chicken-tagine",4,false] ],
+  [ [0,"dinner","r-beef-bean-chilli",2,true],
+    [1,"dinner","r-chicken-meatballs",2,true],
+    [2,"dinner","r-salmon-traybake",2,false],
+    [3,"dinner","r-mexican-chicken-rice",2,false],
+    [4,"dinner","r-beef-stirfry",2,false],
+    [5,"batch","r-fajita-filling",4,false],
+    [6,"batch","r-taco-beef-sauce",4,false] ]
+];
+const ROTATION_WEEKS = 6;
+const ROTATION_SET = 1;
+
+/* Deterministic ids, so if both phones fill the same week they land on the
+   same records rather than doubling everything up. */
+function fillRotation(anchorISO, weeks){
+  const anchor = parseISO(anchorISO);
+  let n = 0;
+  for(let w=0; w<weeks; w++){
+    ROTATION[w % ROTATION.length].forEach((m,i)=>{
+      const [day,slot,recipeId,servings,frozen] = m;
+      const date = iso(addDays(anchor, w*7 + day));
+      put("meal", "p-"+date+"-"+slot+"-"+i,
+          {date, slot, recipeId, servings, order:i, frozen:!!frozen});
+      n++;
+    });
+  }
+  put("setting","setting:rotation",{v:ROTATION_SET, anchor:anchorISO, weeks:weeks});
+  return n;
+}
+function clearRotation(anchorISO, weeks){
+  const anchor = parseISO(anchorISO);
+  let n = 0;
+  for(let w=0; w<weeks*7; w++){
+    const ds = iso(addDays(anchor,w));
+    SLOTS.forEach(slot=>mealsOn(ds,slot).forEach(m=>{ drop(m.id); n++; }));
+  }
+  return n;
+}
+function ensureRotation(){
+  const v = get("setting:rotation");
+  if(v && (v.doc.v||0) >= ROTATION_SET) return;
+  fillRotation(iso(mondayOf(new Date())), ROTATION_WEEKS);
+}
+function openRotation(){
+  const v = get("setting:rotation");
+  const anchor = v ? v.doc.anchor : iso(mondayOf(new Date()));
+  const a = parseISO(anchor);
+  let h = '<p class="small muted" style="margin:0 0 16px">Your three-week cycle, laid out '
+    + ROTATION_WEEKS+' weeks ahead from '+fmtShort(a)+'. Change any week however you like — '
+    + 'nothing here overwrites it unless you refill below.</p>';
+  ROTATION.forEach((wk,i)=>{
+    h += '<label class="f" style="margin-top:14px">Week '+(i+1)+'</label><div class="card" style="padding:2px 0">';
+    wk.forEach(([day,slot,rid,serv,frozen])=>{
+      const r = recipeById(rid);
+      h += '<div class="ingline" style="padding:8px 12px;align-items:center">'
+        + '<span style="min-width:42px;font-weight:700;font-size:13px">'+DAYNAMES[day].slice(0,3)+'</span>'
+        + '<span style="flex:1">'+(frozen?'<span style="color:#4a90c2">❄ </span>':"")+esc(r?r.doc.name:rid)+'</span>'
+        + (slot==="batch"?'<span class="pill green">Batch ×'+serv+'</span>':'<span class="tiny muted">'+serv+'</span>')
+        + '</div>';
+    });
+    h += '</div>';
+  });
+  h += '<div class="note" style="margin:20px 0 14px">❄ marks a meal you eat from the freezer, so it adds nothing to that week\'s shopping list. Batch cook days buy for the whole batch.</div>'
+    + '<div class="row wrap" style="gap:8px">'
+    + '<button class="btn primary" data-act="refillnow">Refill from this week</button>'
+    + '<button class="btn" data-act="refillnext">Refill from next Monday</button></div>'
+    + '<div class="row" style="margin-top:10px"><button class="btn sm danger" data-act="clearrotation">Clear these '+ROTATION_WEEKS+' weeks</button></div>';
+  sheet("Meal rotation", h);
+}
+
+/* =========================================================
    11. Boot
    ========================================================= */
 const invited = readInvite();
@@ -1927,7 +2065,7 @@ if(connected()){
   startSync();                      // seeds after first successful pull if empty
   if(invited) setTimeout(()=>toast("Connected to your shared plan"), 600);
 }else{
-  ensureRecipes();
+  ensureRecipes(); ensureRotation();
   setSync("off");
 }
 render();
