@@ -317,6 +317,10 @@ async function pull(){
     if(!maxT || t>maxT) maxT = t;
     if(S.pending[row.id]) return;                       // our unpushed edit wins for now
     const cur = S.items[row.id];
+    // Rows we already have, unchanged — usually our own writes coming back.
+    // Treating these as "changed" would redraw the screen every few seconds
+    // and wipe out anything being typed.
+    if(cur && cur.updated_at === row.updated_at && cur.deleted === !!row.deleted) return;
     if(!cur || t >= new Date(cur.updated_at||0)){
       S.items[row.id] = { id:row.id, kind:row.kind, doc:row.doc, deleted:!!row.deleted, updated_at:row.updated_at };
       changed = true;
@@ -362,7 +366,9 @@ async function sync(quiet){
     await push();
     await pull();
     setSync("ok");
-    ensureRecipes(); ensureRotation();
+    // First run for a household writes the recipes and the rotation — redraw so they show.
+    const wroteA = ensureRecipes(), wroteB = ensureRotation();
+    if(wroteA || wroteB) render();
   }catch(e){
     // A flat "no internet" isn't a fault worth alarming anyone about.
     setSync(navigator.onLine ? "err" : "offline", e.message);
@@ -634,61 +640,91 @@ function renderRecipes(){
   });
 }
 
+/* Everything on the list — worked out from the meals, plus anything typed
+   in by hand — as one sorted set of rows. */
+function shoppingRows(w){
+  const rows = buildList(w).map(it=>({
+      kind:"calc", key:it.key, item:itemLabel(it.item,it.qty,it.unit),
+      qty:it.qty, unit:it.unit, aisle:it.aisle, sources:it.sources, done:it.done }))
+    .concat(extrasFor(w).map(x=>({
+      kind:"extra", id:x.id, item:x.doc.text, qty:null, unit:"",
+      aisle:x.doc.aisle||"Other", sources:[], done:!!x.doc.checked })));
+  rows.sort((a,b)=>{
+    const ai=AISLES.indexOf(a.aisle), bi=AISLES.indexOf(b.aisle);
+    if(ai!==bi) return (ai<0?99:ai)-(bi<0?99:bi);
+    return a.item.localeCompare(b.item);
+  });
+  return rows;
+}
+
 function renderShopping(){
-  const items=buildList(week), extras=extrasFor(week), meals=weekMeals(week);
+  const rows = shoppingRows(week), meals = weekMeals(week);
+  const addBtn = '<button class="btn primary" data-act="additems" style="width:100%;margin-top:18px;padding:11px">+ Add items to the list</button>';
   let html = weekNav();
-  if(!items.length && !extras.length){
-    view.innerHTML = html + '<div class="card empty">Nothing to buy yet.<br><span class="small">Add meals to this week and the list builds itself.</span></div>'
-      + extraForm();
-    bindShopping(); return;
+
+  if(!rows.length){
+    view.innerHTML = html
+      + '<div class="card empty">Nothing on the list yet.<br><span class="small">Plan some meals for this week, or add anything you need below.</span></div>'
+      + addBtn;
+    return;
   }
-  const total=items.length+extras.length;
-  const doneN=items.filter(i=>i.done).length + extras.filter(e=>e.doc.checked).length;
+
+  const doneN = rows.filter(r=>r.done).length;
   html += '<div class="row wrap small muted" style="margin:-4px 4px 10px">'
-    + '<span>'+doneN+" of "+total+' picked up · '+meals.length+" "+plural(meals.length,"meal")+'</span>'
+    + '<span>'+doneN+" of "+rows.length+' picked up · '+meals.length+" "+plural(meals.length,"meal")+'</span>'
     + '<div class="sp"></div>'
     + '<span class="row" style="gap:2px">'
     + '<button class="btn sm ghost" data-act="copylist">Copy as text</button>'
     + '<button class="btn sm ghost" data-act="resetlist">Reset ticks</button></span></div>';
 
   let cur=null, body="";
-  items.forEach(it=>{
-    if(it.aisle!==cur){ if(cur!==null) body+='</div>'; cur=it.aisle; body+='<h3>'+esc(cur)+'</h3><div class="card">'; }
-    body += '<div class="item'+(it.done?" done":"")+'">'
-      + '<button class="cb" data-tick="'+esc(it.key)+'">'+(it.done?"✓":"")+'</button>'
-      + '<div class="txt"><span class="qty" style="font-weight:700">'+prettyQty(it.qty,it.unit,true)+'</span> '+esc(itemLabel(it.item,it.qty,it.unit))
-      + '<span class="src">'+esc(it.sources.join(", "))+'</span></div>'
-      + '<button class="del" data-hide="'+esc(it.key)+'" title="Already have it">×</button></div>';
+  rows.forEach(r=>{
+    if(r.aisle!==cur){ if(cur!==null) body+='</div>'; cur=r.aisle; body+='<h3>'+esc(cur)+'</h3><div class="card">'; }
+    const tick = r.kind==="calc" ? 'data-tick="'+esc(r.key)+'"' : 'data-tickx="'+r.id+'"';
+    const del  = r.kind==="calc" ? 'data-hide="'+esc(r.key)+'" title="Already have it"' : 'data-delx="'+r.id+'"';
+    body += '<div class="item'+(r.done?" done":"")+'">'
+      + '<button class="cb" '+tick+'>'+(r.done?"✓":"")+'</button>'
+      + '<div class="txt">'
+      + (r.qty!=null?'<span class="qty" style="font-weight:700">'+prettyQty(r.qty,r.unit,true)+'</span> ':"")
+      + esc(r.item)
+      + (r.sources.length?'<span class="src">'+esc(r.sources.join(", "))+'</span>':"")
+      + '</div><button class="del" '+del+'>×</button></div>';
   });
   if(cur!==null) body+='</div>';
-  if(extras.length){
-    body += '<h3>Extras</h3><div class="card">';
-    extras.forEach(x=>{
-      body += '<div class="item'+(x.doc.checked?" done":"")+'">'
-        + '<button class="cb" data-tickx="'+x.id+'">'+(x.doc.checked?"✓":"")+'</button>'
-        + '<div class="txt">'+esc(x.doc.text)+'</div>'
-        + '<button class="del" data-delx="'+x.id+'">×</button></div>';
-    });
-    body += '</div>';
-  }
-  view.innerHTML = html + '<div class="aisle">'+body+'</div>' + extraForm();
-  bindShopping();
+  view.innerHTML = html + '<div class="aisle">'+body+'</div>' + addBtn;
 }
-function extraForm(){
-  return '<form class="row" id="extraForm" style="margin-top:16px;gap:8px">'
-    + '<input type="text" id="extraInput" placeholder="Add something else…">'
-    + '<button class="btn" type="submit">Add</button></form>';
+
+/* Type as many things as you like, one per line or comma separated. */
+function openAddItems(){
+  const opts = AISLES.map(a=>'<option value="'+a+'"'+(a==="Other"?" selected":"")+'>'+a+'</option>').join("");
+  sheet("Add to the list",
+      '<p class="small muted" style="margin:0 0 12px">One per line, or separated by commas. Anything at all — washing up liquid, tissues, a birthday card.</p>'
+    + '<textarea id="bulkItems" rows="7" placeholder="washing up liquid&#10;tissues&#10;bin bags, foil"></textarea>'
+    + '<label class="f" style="margin-top:14px">Where in the shop?</label>'
+    + '<select id="bulkAisle">'+opts+'</select>'
+    + '<p class="tiny muted" style="margin:8px 0 0">Only affects where they sit on the list. Household covers cleaning and toiletries.</p>'
+    + '<div class="row" style="margin-top:18px;gap:8px"><button class="btn primary" data-act="addbulk">Add to list</button>'
+    + '<button class="btn ghost" data-close>Cancel</button></div>');
+  setTimeout(()=>{ const t=document.getElementById("bulkItems"); if(t) t.focus(); }, 60);
 }
-function bindShopping(){
-  const f=document.getElementById("extraForm"); if(!f) return;
-  f.addEventListener("submit", e=>{
-    e.preventDefault();
-    const inp=document.getElementById("extraInput"), v=inp.value.trim();
-    if(!v) return;
-    put("extra", uid("x-"), {week, text:v, checked:false, order:Date.now()});
-    renderShopping();
-    const n=document.getElementById("extraInput"); if(n) n.focus();
+function addBulkItems(){
+  const ta = document.getElementById("bulkItems");
+  const aisle = document.getElementById("bulkAisle").value || "Other";
+  const names = (ta.value||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+  if(!names.length){ toast("Nothing to add"); return; }
+  const seen = new Set(extrasFor(week).map(x=>normItem(x.doc.text)));
+  let added = 0, dupes = 0;
+  names.forEach((text,i)=>{
+    const k = normItem(text);
+    if(seen.has(k)){ dupes++; return; }
+    seen.add(k);
+    put("extra", uid("x-"), {week, text, checked:false, order:Date.now()+i, aisle});
+    added++;
   });
+  closeModal(); renderShopping();
+  toast(added
+    ? added+" "+plural(added,"item")+" added"+(dupes?" ("+dupes+" already on the list)":"")
+    : "Already on the list");
 }
 
 /* =========================================================
@@ -1125,13 +1161,11 @@ function copyText(txt, okMsg){
   }
 }
 function listAsText(){
-  const items=buildList(week), extras=extrasFor(week), lines=[];
-  let cur=null;
-  items.forEach(i=>{
-    if(i.aisle!==cur){ cur=i.aisle; lines.push(""); lines.push(cur.toUpperCase()); }
-    lines.push((i.done?"[x] ":"[ ] ")+(prettyQty(i.qty,i.unit,true)+" "+itemLabel(i.item,i.qty,i.unit)).trim());
+  const lines=[]; let cur=null;
+  shoppingRows(week).forEach(r=>{
+    if(r.aisle!==cur){ cur=r.aisle; lines.push(""); lines.push(cur.toUpperCase()); }
+    lines.push((r.done?"[x] ":"[ ] ")+((r.qty!=null?prettyQty(r.qty,r.unit,true)+" ":"")+r.item).trim());
   });
-  if(extras.length){ lines.push(""); lines.push("EXTRAS"); extras.forEach(x=>lines.push((x.doc.checked?"[x] ":"[ ] ")+x.doc.text)); }
   const d=weekDates(week);
   return "Shopping — "+fmtShort(d[0])+" to "+fmtShort(d[6])+"\n"+lines.join("\n").trim();
 }
@@ -1236,6 +1270,8 @@ document.addEventListener("click", e=>{
       setTimeout(()=>location.reload(true), 700);
     })();
   }
+  else if(act==="additems"){ openAddItems(); }
+  else if(act==="addbulk"){ addBulkItems(); }
   else if(act==="rotation"){ closeMenu(); openRotation(); }
   else if(act==="refillnow" || act==="refillnext"){
     const anchor = act==="refillnow" ? iso(mondayOf(new Date())) : iso(addDays(mondayOf(new Date()),7));
@@ -1975,15 +2011,18 @@ const RECIPES = [
 ];
 /* Runs once per household, not once per device — the version lives in the
    shared store, so the second phone doesn't repeat the work. */
+/* Returns true if it actually wrote something, so the caller knows to redraw. */
 function ensureRecipes(){
+  let wrote = false;
   /* Clear retired starters whenever they turn up, whatever order the
      devices happen to sync in. Dropping an already-dropped id is a no-op. */
-  RETIRED.forEach(id=>{ const it = S.items[id]; if(it && !it.deleted) drop(id); });
+  RETIRED.forEach(id=>{ const it = S.items[id]; if(it && !it.deleted){ drop(id); wrote = true; } });
   const v = get("setting:recipes");
-  if(v && (v.doc.v||0) >= RECIPE_SET) return;
+  if(v && (v.doc.v||0) >= RECIPE_SET) return wrote;
   RECIPES.forEach(([id,doc])=>put("recipe", id, doc));
   put("setting","setting:recipes",{v:RECIPE_SET});
   S.seeded = true; saveLocal();
+  return true;
 }
 
 /* =========================================================
@@ -2044,8 +2083,9 @@ function clearRotation(anchorISO, weeks){
 }
 function ensureRotation(){
   const v = get("setting:rotation");
-  if(v && (v.doc.v||0) >= ROTATION_SET) return;
+  if(v && (v.doc.v||0) >= ROTATION_SET) return false;
   fillRotation(iso(mondayOf(new Date())), ROTATION_WEEKS);
+  return true;
 }
 function openRotation(){
   const v = get("setting:rotation");
