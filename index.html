@@ -352,7 +352,7 @@ async function sync(quiet){
     await push();
     await pull();
     setSync("ok");
-    if(!S.seeded){ maybeSeed(); }
+    ensureRecipes();
   }catch(e){
     // A flat "no internet" isn't a fault worth alarming anyone about.
     setSync(navigator.onLine ? "err" : "offline", e.message);
@@ -688,14 +688,59 @@ function sheet(title, bodyHTML){
 function openRecipe(id){
   const r=recipeById(id); if(!r) return;
   const d=r.doc;
-  let h='<div class="row wrap small muted" style="gap:10px;margin-bottom:14px"><span>Serves '+d.servings+'</span><span>·</span><span>'+d.time+' min</span>'
-    +(d.batch?'<span class="pill green">Batch friendly</span>':"")+'</div>';
-  h += '<label class="f">Ingredients</label><div style="margin-bottom:18px">'
-    + d.ingredients.map(i=>'<div class="ingline"><span style="min-width:76px;font-weight:700">'+prettyQty(i.qty,i.unit)+'</span><span>'+esc(i.item)+'</span></div>').join("")
-    + '</div><label class="f">Method</label><ol class="method">'
+  const list = a => (a||[]).filter(Boolean);
+  const fz = d.freezer || {};
+
+  let h = '<div class="row wrap small muted" style="gap:8px;margin-bottom:10px">'
+    + '<span>Serves '+d.servings+'</span>'
+    + (d.prep?'<span>·</span><span>'+d.prep+' min prep</span>':"")
+    + (d.cook?'<span>·</span><span>'+d.cook+' min cook</span>':"")
+    + '<span>·</span><span><b>'+d.time+' min total</b></span></div>';
+
+  h += '<div class="row wrap" style="gap:6px;margin-bottom:16px">'
+    + (d.batch?'<span class="pill green">Batch cook</span>':"")
+    + (fz.ok===true?'<span class="pill green">Freezer friendly</span>':fz.ok===false?'<span class="pill">Eat fresh</span>':"")
+    + (d.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join("")
+    + '</div>';
+  if(fz.note) h += '<p class="small muted" style="margin:-8px 0 16px">'+esc(fz.note)+'</p>';
+
+  h += '<label class="f">Ingredients</label><div style="margin-bottom:20px">'
+    + d.ingredients.map(i=>'<div class="ingline"><span style="min-width:78px;font-weight:700">'+prettyQty(i.qty,i.unit)+'</span><span>'+esc(i.item)+'</span></div>').join("")
+    + '</div>';
+
+  h += '<label class="f">Method</label><ol class="method">'
     + d.steps.map(s=>'<li>'+esc(s.text)+(s.mins?'<span class="t">'+s.mins+' min</span>':"")+'</li>').join("")
     + '</ol>';
-  h += '<div class="row wrap" style="margin-top:18px;gap:8px">'
+
+  const n = d.nutrition;
+  if(n && n.kcal){
+    h += '<label class="f" style="margin-top:20px">Per serving</label>'
+      + '<div class="row wrap small" style="gap:14px;margin-bottom:4px">'
+      + '<span><b>'+n.kcal+'</b> kcal</span><span><b>'+n.protein+'g</b> protein</span>'
+      + '<span><b>'+n.carbs+'g</b> carbs</span><span><b>'+n.fat+'g</b> fat</span>'
+      + '<span><b>'+n.fibre+'g</b> fibre</span></div>'
+      + (n.note?'<p class="tiny muted" style="margin:0 0 6px">'+esc(n.note)+'</p>':"");
+  }
+
+  if(list(d.tips).length){
+    h += '<label class="f" style="margin-top:20px">Chef’s tips</label><ul style="margin:0 0 4px;padding-left:20px">'
+      + d.tips.map(t=>'<li style="margin-bottom:6px;font-size:14.5px;line-height:1.5">'+esc(t)+'</li>').join("")+'</ul>';
+  }
+  if(d.storage && (d.storage.fridge||d.storage.freezer)){
+    h += '<label class="f" style="margin-top:20px">Storage</label>'
+      + (d.storage.fridge?'<p class="small" style="margin:0 0 5px"><b>Fridge:</b> '+esc(d.storage.fridge)+'</p>':"")
+      + (d.storage.freezer?'<p class="small" style="margin:0"><b>Freezer:</b> '+esc(d.storage.freezer)+'</p>':"");
+  }
+  if(list(d.serveWith).length){
+    h += '<label class="f" style="margin-top:20px">Serve with</label>'
+      + '<p class="small muted" style="margin:0">'+esc(d.serveWith.join(" · "))+'</p>';
+  }
+  if(list(d.equipment).length){
+    h += '<label class="f" style="margin-top:20px">Equipment</label>'
+      + '<p class="small muted" style="margin:0">'+esc(d.equipment.join(" · "))+'</p>';
+  }
+
+  h += '<div class="row wrap" style="margin-top:22px;gap:8px">'
     + '<button class="btn" data-act="editrecipe" data-id="'+r.id+'">Edit</button>'
     + '<div class="sp"></div><button class="btn danger" data-act="delrecipe" data-id="'+r.id+'">Delete</button></div>';
   sheet(esc(d.name), h);
@@ -723,7 +768,12 @@ function openPicker(dateISO, slot){
 let draft=null, draftId=null;
 function openEditor(id){
   if(id){ draftId=id; draft=JSON.parse(JSON.stringify(recipeById(id).doc)); }
-  else{ draftId=null; draft={name:"",servings:4,time:30,batch:false,tags:[],ingredients:[{qty:"",unit:"",item:"",aisle:"Produce"}],steps:[{text:"",mins:""}]}; }
+  else{ draftId=null; draft={name:"",servings:2,prep:10,cook:20,time:30,batch:false,tags:[],
+        ingredients:[{qty:"",unit:"",item:"",aisle:"Produce"}],steps:[{text:"",mins:""}]}; }
+  draft.freezer  = draft.freezer  || {ok:false,note:""};
+  draft.storage  = draft.storage  || {fridge:"",freezer:""};
+  draft.nutrition= draft.nutrition|| {kcal:"",protein:"",carbs:"",fat:"",fibre:"",note:""};
+  ["equipment","tips","serveWith"].forEach(k=>{ draft[k] = draft[k] || []; });
   drawEditor();
 }
 function drawEditor(){
@@ -733,9 +783,13 @@ function drawEditor(){
   let h='<div class="grid2" style="margin-bottom:10px">'
     + '<div style="grid-column:1/-1"><label class="f">Name</label><input type="text" data-d="name" value="'+esc(r.name)+'" placeholder="Spaghetti bolognese"></div>'
     + '<div><label class="f">Serves</label><input type="number" min="1" data-d="servings" value="'+r.servings+'"></div>'
-    + '<div><label class="f">Minutes</label><input type="number" min="1" data-d="time" value="'+r.time+'"></div>'
-    + '<div style="grid-column:1/-1"><label class="f">Tags</label><input type="text" data-d="tags" value="'+esc((r.tags||[]).join(", "))+'" placeholder="quick, veggie"></div></div>'
-    + '<label class="row small" style="gap:8px;margin-bottom:18px"><input type="checkbox" data-d="batch" '+(r.batch?"checked":"")+' style="width:auto"> Good for batch cooking</label>'
+    + '<div><label class="f">Total min</label><input type="number" min="1" data-d="time" value="'+r.time+'"></div>'
+    + '<div><label class="f">Prep min</label><input type="number" min="0" data-d="prep" value="'+(r.prep||"")+'"></div>'
+    + '<div><label class="f">Cook min</label><input type="number" min="0" data-d="cook" value="'+(r.cook||"")+'"></div>'
+    + '<div style="grid-column:1/-1"><label class="f">Tags</label><input type="text" data-d="tags" value="'+esc((r.tags||[]).join(", "))+'" placeholder="quick, chicken"></div></div>'
+    + '<label class="row small" style="gap:8px;margin-bottom:8px"><input type="checkbox" data-d="batch" '+(r.batch?"checked":"")+' style="width:auto"> Good for batch cooking</label>'
+    + '<label class="row small" style="gap:8px;margin-bottom:8px"><input type="checkbox" data-d="freezer.ok" '+(r.freezer.ok?"checked":"")+' style="width:auto"> Freezer friendly</label>'
+    + '<input type="text" data-d="freezer.note" value="'+esc(r.freezer.note||"")+'" placeholder="Freezing note (optional)" style="margin-bottom:18px">'
     + '<label class="f">Ingredients</label>';
   r.ingredients.forEach((i,n)=>{
     h += '<div class="fieldrow"><input type="number" step="any" placeholder="Qty" value="'+(i.qty==null?"":i.qty)+'" data-ing="'+n+'" data-k="qty" style="width:70px">'
@@ -751,17 +805,50 @@ function drawEditor(){
       + '<input type="number" min="0" placeholder="min" value="'+(s.mins||"")+'" data-step="'+n+'" data-k="mins" style="width:66px">'
       + '<button class="btn sm ghost" data-rms="'+n+'">×</button></div>';
   });
-  h += '<button class="btn sm" data-adds style="margin:4px 0 20px">+ Step</button>'
-    + '<div class="row"><button class="btn primary" data-act="saverecipe">Save recipe</button><button class="btn ghost" data-close>Cancel</button></div>'
+  h += '<button class="btn sm" data-adds style="margin:4px 0 20px">+ Step</button>';
+
+  const n = r.nutrition;
+  h += '<details style="margin-bottom:20px"><summary class="f" style="cursor:pointer;margin-bottom:12px">More details</summary>'
+    + '<label class="f">Equipment <span style="text-transform:none;font-weight:400">— one per line</span></label>'
+    + '<textarea rows="3" data-list="equipment" style="margin-bottom:12px">'+esc((r.equipment||[]).join("\n"))+'</textarea>'
+    + '<label class="f">Chef’s tips <span style="text-transform:none;font-weight:400">— one per line</span></label>'
+    + '<textarea rows="4" data-list="tips" style="margin-bottom:12px">'+esc((r.tips||[]).join("\n"))+'</textarea>'
+    + '<label class="f">Serve with <span style="text-transform:none;font-weight:400">— one per line</span></label>'
+    + '<textarea rows="3" data-list="serveWith" style="margin-bottom:12px">'+esc((r.serveWith||[]).join("\n"))+'</textarea>'
+    + '<label class="f">Storage</label>'
+    + '<input type="text" data-d="storage.fridge" value="'+esc(r.storage.fridge||"")+'" placeholder="Fridge" style="margin-bottom:8px">'
+    + '<input type="text" data-d="storage.freezer" value="'+esc(r.storage.freezer||"")+'" placeholder="Freezer" style="margin-bottom:14px">'
+    + '<label class="f">Nutrition per serving</label><div class="grid2" style="margin-bottom:8px">'
+    + '<div><input type="number" data-d="nutrition.kcal" value="'+(n.kcal||"")+'" placeholder="kcal"></div>'
+    + '<div><input type="number" data-d="nutrition.protein" value="'+(n.protein||"")+'" placeholder="protein g"></div>'
+    + '<div><input type="number" data-d="nutrition.carbs" value="'+(n.carbs||"")+'" placeholder="carbs g"></div>'
+    + '<div><input type="number" data-d="nutrition.fat" value="'+(n.fat||"")+'" placeholder="fat g"></div>'
+    + '<div><input type="number" data-d="nutrition.fibre" value="'+(n.fibre||"")+'" placeholder="fibre g"></div>'
+    + '<div><input type="text" data-d="nutrition.note" value="'+esc(n.note||"")+'" placeholder="note"></div>'
+    + '</div></details>';
+
+  h += '<div class="row"><button class="btn primary" data-act="saverecipe">Save recipe</button><button class="btn ghost" data-close>Cancel</button></div>'
     + '<p class="tiny muted" style="margin-top:12px">Minutes on a step are optional — they power the cook-along timers.</p>';
   sheet(draftId?"Edit recipe":"New recipe", h);
 
+  const NUMS = ["servings","time","prep","cook"];
   modal.querySelectorAll("[data-d]").forEach(el=>el.addEventListener("change",()=>{
     const k=el.dataset.d;
+    if(k.indexOf(".")>-1){                                  // freezer.ok, nutrition.kcal, …
+      const [a,b]=k.split(".");
+      draft[a] = draft[a] || {};
+      draft[a][b] = el.type==="checkbox" ? el.checked
+                  : el.type==="number"   ? (el.value===""?"":Number(el.value))
+                  : el.value;
+      return;
+    }
     if(k==="batch") draft.batch=el.checked;
     else if(k==="tags") draft.tags=el.value.split(",").map(s=>s.trim()).filter(Boolean);
-    else if(k==="servings"||k==="time") draft[k]=Number(el.value)||1;
+    else if(NUMS.includes(k)) draft[k]=Number(el.value)||(k==="servings"||k==="time"?1:0);
     else draft[k]=el.value;
+  }));
+  modal.querySelectorAll("[data-list]").forEach(el=>el.addEventListener("change",()=>{
+    draft[el.dataset.list] = el.value.split("\n").map(s=>s.trim()).filter(Boolean);
   }));
   modal.querySelectorAll("[data-ing]").forEach(el=>el.addEventListener("change",()=>{
     const i=Number(el.dataset.ing), k=el.dataset.k;
@@ -772,7 +859,7 @@ function drawEditor(){
     draft.steps[i][k] = (k==="mins") ? (el.value===""?"":Number(el.value)) : el.value;
   }));
 }
-function commitInputs(){ modal.querySelectorAll("[data-d],[data-ing],[data-step]").forEach(el=>el.dispatchEvent(new Event("change"))); }
+function commitInputs(){ modal.querySelectorAll("[data-d],[data-ing],[data-step],[data-list]").forEach(el=>el.dispatchEvent(new Event("change"))); }
 function saveRecipe(){
   commitInputs();
   if(!draft.name.trim()){ toast("Give the recipe a name"); return; }
@@ -1161,7 +1248,7 @@ document.addEventListener("click", e=>{
     if(confirm("Erase everything on this device? If sharing is on, it will download again from the shared copy.")){
       S={items:{},pending:{},watermark:null,seeded:false};
       lsSet(DATA_KEY, JSON.stringify(S));
-      if(connected()) sync().then(()=>{ maybeSeed(); render(); }); else { maybeSeed(); render(); }
+      if(connected()) sync().then(()=>{ ensureRecipes(); render(); }); else { ensureRecipes(); render(); }
     }
     closeMenu();
   }
@@ -1172,38 +1259,662 @@ document.addEventListener("click", e=>{
    ========================================================= */
 function I(qty,unit,item,aisle){ return {qty,unit,item,aisle}; }
 function St(text,mins){ return {text,mins:mins||""}; }
-const SAMPLES = [
- ["r-bolognese",{name:"Spaghetti bolognese",servings:4,time:50,batch:true,tags:["family","freezer"],
-  ingredients:[I(500,"g","beef mince","Meat & Fish"),I(1,"","onion","Produce"),I(2,"","carrots","Produce"),I(2,"clove","garlic","Produce"),I(2,"can","chopped tomatoes","Tins & Jars"),I(2,"tbsp","tomato purée","Tins & Jars"),I(400,"g","spaghetti","Dry Goods"),I(1,"tsp","dried oregano","Herbs & Spices"),I(50,"g","parmesan","Dairy & Eggs")],
-  steps:[St("Finely dice the onion and carrots, crush the garlic."),St("Soften the onion and carrot in oil over medium heat.",8),St("Add garlic and beef mince, brown all over breaking up lumps.",6),St("Stir in tomato purée and oregano, cook out for a minute.",1),St("Add chopped tomatoes, season, simmer uncovered until thick.",30),St("Boil the spaghetti in well-salted water.",10),St("Drain pasta, fold through the sauce, serve with parmesan.")]}],
- ["r-fajitas",{name:"Chicken fajitas",servings:4,time:30,batch:false,tags:["quick"],
-  ingredients:[I(600,"g","chicken breast","Meat & Fish"),I(2,"","peppers","Produce"),I(1,"","red onion","Produce"),I(8,"","tortilla wraps","Bakery"),I(2,"tsp","smoked paprika","Herbs & Spices"),I(1,"tsp","ground cumin","Herbs & Spices"),I(1,"","lime","Produce"),I(150,"ml","soured cream","Dairy & Eggs"),I(1,"","avocado","Produce")],
-  steps:[St("Slice chicken, peppers and onion into strips."),St("Toss chicken with paprika, cumin, salt and a squeeze of lime."),St("Sear the chicken in a hot pan until coloured, then set aside.",7),St("Fry peppers and onion until charred at the edges.",6),St("Return chicken to the pan and toss together.",2),St("Warm the wraps and serve with soured cream and sliced avocado.",2)]}],
- ["r-greencurry",{name:"Thai green chicken curry",servings:4,time:35,batch:false,tags:["spicy"],
-  ingredients:[I(600,"g","chicken thighs","Meat & Fish"),I(3,"tbsp","green curry paste","Tins & Jars"),I(400,"ml","coconut milk","Tins & Jars"),I(150,"g","green beans","Produce"),I(1,"","aubergine","Produce"),I(300,"g","jasmine rice","Dry Goods"),I(1,"tbsp","fish sauce","Tins & Jars"),I(1,"bunch","coriander","Produce")],
-  steps:[St("Rinse the rice and set it on to cook.",12),St("Fry the curry paste in a splash of coconut milk until fragrant.",2),St("Add sliced chicken thighs and coat in the paste.",4),St("Pour in the rest of the coconut milk and bring to a simmer.",3),St("Add chopped aubergine and beans, simmer until tender.",12),St("Season with fish sauce, scatter coriander, serve with rice.")]}],
- ["r-chilli",{name:"Beef chilli",servings:6,time:70,batch:true,tags:["freezer","family"],
-  ingredients:[I(750,"g","beef mince","Meat & Fish"),I(2,"","onion","Produce"),I(3,"clove","garlic","Produce"),I(2,"can","chopped tomatoes","Tins & Jars"),I(1,"can","kidney beans","Tins & Jars"),I(2,"tbsp","chilli powder","Herbs & Spices"),I(1,"tbsp","ground cumin","Herbs & Spices"),I(1,"","beef stock cube","Dry Goods"),I(300,"g","long grain rice","Dry Goods")],
-  steps:[St("Dice the onions, crush the garlic."),St("Soften the onions in a large casserole.",8),St("Add garlic and spices, cook until aromatic.",2),St("Brown the mince thoroughly.",8),St("Add tomatoes, crumbled stock cube and a splash of water.",2),St("Simmer gently, stirring now and then.",40),St("Stir in the drained kidney beans and warm through.",5),St("Cook the rice and serve.",12)]}],
- ["r-salmon",{name:"Salmon with roasted veg",servings:2,time:35,batch:false,tags:["quick","healthy"],
-  ingredients:[I(2,"","salmon fillets","Meat & Fish"),I(400,"g","new potatoes","Produce"),I(1,"","courgette","Produce"),I(200,"g","cherry tomatoes","Produce"),I(2,"tbsp","olive oil","Dry Goods"),I(1,"","lemon","Produce")],
-  steps:[St("Heat the oven to 200C fan.",10),St("Halve the potatoes, toss with oil and salt, roast.",20),St("Add courgette and tomatoes to the tray and roast again.",8),St("Lay the salmon on top, squeeze over lemon, roast until just cooked.",12),St("Rest for a couple of minutes and serve.",2)]}],
- ["r-risotto",{name:"Mushroom risotto",servings:4,time:40,batch:false,tags:["veggie"],
-  ingredients:[I(300,"g","arborio rice","Dry Goods"),I(400,"g","chestnut mushrooms","Produce"),I(1,"","onion","Produce"),I(2,"clove","garlic","Produce"),I(150,"ml","white wine","Other"),I(1,"l","vegetable stock","Dry Goods"),I(60,"g","parmesan","Dairy & Eggs"),I(40,"g","butter","Dairy & Eggs"),I(1,"handful","parsley","Produce")],
-  steps:[St("Heat the stock and keep it at a bare simmer.",5),St("Fry the sliced mushrooms in butter until golden, set aside.",8),St("Soften the diced onion and garlic in the same pan.",6),St("Stir in the rice and toast until translucent at the edges.",2),St("Pour in the wine and let it bubble away.",2),St("Add stock a ladle at a time, stirring, until the rice is al dente.",18),St("Fold in mushrooms, parmesan and butter. Rest, covered.",3),St("Finish with chopped parsley and black pepper.")]}],
- ["r-sausagestew",{name:"Sausage and butterbean stew",servings:4,time:45,batch:true,tags:["freezer","one pot"],
-  ingredients:[I(8,"","sausages","Meat & Fish"),I(1,"","onion","Produce"),I(2,"clove","garlic","Produce"),I(2,"can","butterbeans","Tins & Jars"),I(1,"can","chopped tomatoes","Tins & Jars"),I(1,"tsp","smoked paprika","Herbs & Spices"),I(200,"g","kale","Produce"),I(1,"","crusty loaf","Bakery")],
-  steps:[St("Brown the sausages all over in a casserole, then remove.",8),St("Soften the sliced onion and garlic in the sausage fat.",7),St("Stir in the paprika, then the tomatoes and drained butterbeans.",2),St("Return the sausages and simmer until thickened.",20),St("Stir the kale through until wilted.",4),St("Serve with plenty of bread.")]}],
- ["r-chickpea",{name:"Chickpea and spinach curry",servings:4,time:30,batch:true,tags:["veggie","freezer","quick"],
-  ingredients:[I(2,"can","chickpeas","Tins & Jars"),I(200,"g","spinach","Produce"),I(1,"","onion","Produce"),I(3,"clove","garlic","Produce"),I(1,"tbsp","curry powder","Herbs & Spices"),I(1,"can","chopped tomatoes","Tins & Jars"),I(200,"ml","coconut milk","Tins & Jars"),I(300,"g","basmati rice","Dry Goods"),I(4,"","naan breads","Bakery")],
-  steps:[St("Set the rice on to cook.",12),St("Soften the diced onion.",6),St("Add garlic and curry powder, fry until fragrant.",2),St("Tip in the tomatoes, coconut milk and drained chickpeas.",2),St("Simmer until glossy and thickened.",12),St("Wilt in the spinach, season, serve with rice and naan.",3)]}],
- ["r-lentilsoup",{name:"Lentil and bacon soup",servings:6,time:50,batch:true,tags:["freezer","lunch"],
-  ingredients:[I(300,"g","red lentils","Dry Goods"),I(200,"g","smoked bacon","Meat & Fish"),I(2,"","carrots","Produce"),I(2,"","celery sticks","Produce"),I(1,"","onion","Produce"),I(1.5,"l","chicken stock","Dry Goods"),I(1,"","crusty loaf","Bakery")],
-  steps:[St("Chop the bacon and vegetables into small dice."),St("Render the bacon until crisp at the edges.",7),St("Add onion, carrot and celery and sweat until soft.",10),St("Stir in the rinsed lentils and the stock.",2),St("Simmer until the lentils collapse, stirring occasionally.",25),St("Season well, blend a little if you like it smoother, serve with bread.")]}]
+/* Retired starter recipes — cleared out when the new set arrives. */
+const RETIRED = ["r-bolognese","r-fajitas","r-greencurry","r-chilli","r-salmon",
+                 "r-risotto","r-sausagestew","r-chickpea","r-lentilsoup"];
+const RECIPE_SET = 2;
+const RECIPES = [
+/* ---- part A ---- */
+["r-taco-beef-pasta",{name:"Taco beef pasta",servings:2,prep:10,cook:20,time:30,batch:false,
+ freezer:{ok:false,note:"Best eaten fresh. The beef sauce can be doubled and frozen before the pasta is added."},
+ tags:["quick","beef","pasta"],
+ ingredients:[
+  I(200,"g","lean beef mince","Meat & Fish"),
+  I(0.5,"","onion","Produce"),I(1,"","red pepper","Produce"),I(1,"clove","garlic","Produce"),
+  I(50,"g","sweetcorn","Tins & Jars"),I(null,"","coriander","Produce"),I(1,"","lime","Produce"),
+  I(150,"g","dried pasta","Dry Goods"),I(0.5,"tbsp","tomato purée","Tins & Jars"),
+  I(200,"g","chopped tomatoes","Tins & Jars"),I(100,"ml","beef stock","Dry Goods"),
+  I(2,"tsp","taco seasoning","Herbs & Spices"),
+  I(50,"g","reduced-fat Cheddar","Dairy & Eggs"),I(50,"g","0% Greek yoghurt","Dairy & Eggs")],
+ steps:[
+  St("Fill a medium saucepan with water, add a pinch of salt and bring to the boil."),
+  St("Finely dice the onion and red pepper, and mince the garlic."),
+  St("Grate the Cheddar and prepare the beef stock."),
+  St("Add the pasta to the boiling water and cook until al dente.",11),
+  St("Heat a large frying pan over a medium-high heat."),
+  St("Add the beef mince and cook, breaking it up with a wooden spoon, until browned.",5),
+  St("Add the diced onion and red pepper and cook until softened.",4),
+  St("Stir in the garlic and cook until fragrant.",1),
+  St("Add the tomato purée and taco seasoning, stir well and cook out.",1),
+  St("Pour in the chopped tomatoes and beef stock, stir and bring to a gentle simmer."),
+  St("Add the sweetcorn and simmer until the sauce thickens slightly.",5),
+  St("Drain the pasta and stir it into the sauce until evenly coated."),
+  St("Take the pan off the heat, then stir through the Greek yoghurt until incorporated."),
+  St("Sprinkle over the Cheddar and stir gently until melted."),
+  St("Taste, season, and serve with chopped coriander and a squeeze of lime.")],
+ equipment:["Medium saucepan","Large frying pan","Colander","Measuring jug"],
+ tips:["Add chopped jalapeños or a pinch of chilli flakes for extra heat.",
+  "Always stir the Greek yoghurt in off the heat so it doesn't split.",
+  "Rigatoni and penne work best as they hold plenty of sauce.",
+  "To batch cook, double the beef sauce only and freeze it before the pasta goes in."],
+ storage:{fridge:"Up to 2 days in an airtight container.",freezer:"Not once combined with pasta. Beef sauce alone freezes for up to 3 months."},
+ serveWith:["Mixed green salad","Garlic green beans","Steamed broccoli","Extra lime wedges"],
+ nutrition:{kcal:585,protein:42,carbs:49,fat:15,fibre:7}}],
+
+["r-tuscan-chicken",{name:"Creamy Tuscan chicken",servings:2,prep:10,cook:25,time:35,batch:false,
+ freezer:{ok:false,note:"The creamy sauce can separate when frozen and reheated."},
+ tags:["chicken","low carb"],
+ ingredients:[
+  I(300,"g","chicken breast","Meat & Fish"),
+  I(0.5,"","onion","Produce"),I(2,"clove","garlic","Produce"),
+  I(100,"g","cherry tomatoes","Produce"),I(40,"g","sun-dried tomatoes","Tins & Jars"),
+  I(75,"g","baby spinach","Produce"),I(null,"","basil","Produce"),
+  I(100,"ml","chicken stock","Dry Goods"),I(1,"tsp","Italian mixed herbs","Herbs & Spices"),
+  I(0.5,"tsp","paprika","Herbs & Spices"),I(1,"tsp","olive oil","Dry Goods"),
+  I(50,"g","light cream cheese","Dairy & Eggs"),I(50,"ml","semi-skimmed milk","Dairy & Eggs"),
+  I(25,"g","Parmesan","Dairy & Eggs")],
+ steps:[
+  St("Take the chicken out of the fridge to lose its chill while you prepare everything else."),
+  St("Slice the onion, mince the garlic, halve the cherry tomatoes and slice the sun-dried tomatoes."),
+  St("Mix the chicken stock with the cream cheese and milk in a jug until mostly smooth."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Season the chicken on both sides with salt, pepper and paprika."),
+  St("Lay the chicken into the hot pan and cook until golden.",5),
+  St("Turn the chicken over and cook the second side.",5),
+  St("Lift the chicken onto a plate — it doesn't need to be cooked through yet. Reduce the heat to medium."),
+  St("Add the sliced onion and cook until softened.",4),
+  St("Stir in the garlic and cook until fragrant.",1),
+  St("Add both the cherry and sun-dried tomatoes and cook until the cherry tomatoes soften.",2),
+  St("Pour in the stock, cream cheese and milk mixture, stirring until the cream cheese melts in."),
+  St("Add the Italian herbs and Parmesan, and simmer until slightly thickened.",3),
+  St("Return the chicken and any juices to the pan and spoon the sauce over."),
+  St("Cover loosely and simmer until the chicken reaches 75°C in the middle.",5),
+  St("Stir the spinach through until just wilted.",2),
+  St("Taste, adjust the seasoning, scatter with basil and serve.")],
+ equipment:["Large frying pan","Measuring jug","Tongs"],
+ tips:["Butterfly thick chicken breasts so they cook evenly.",
+  "Don't let the sauce boil hard once the cream cheese is in.",
+  "Sun-dried tomatoes are salty — taste before adding more salt.",
+  "Mushrooms or asparagus can go in for the last 10 minutes."],
+ storage:{fridge:"Up to 2 days in an airtight container.",freezer:"Not recommended."},
+ serveWith:["120g cooked orzo","120g cooked basmati rice","Roasted baby potatoes","Steamed Tenderstem broccoli","Green beans"],
+ nutrition:{kcal:445,protein:49,carbs:12,fat:20,fibre:3}}],
+
+["r-seabass-orzo",{name:"Mediterranean sea bass with orzo",servings:2,prep:10,cook:25,time:35,batch:false,
+ freezer:{ok:false,note:"Sea bass is best cooked and eaten fresh."},
+ tags:["fish","one pan"],
+ ingredients:[
+  I(2,"","sea bass fillets","Meat & Fish"),
+  I(200,"g","cherry tomatoes","Produce"),I(40,"g","sun-dried tomatoes","Tins & Jars"),
+  I(2,"clove","garlic","Produce"),I(75,"g","baby spinach","Produce"),
+  I(null,"","basil","Produce"),I(1,"","lemon","Produce"),
+  I(150,"g","dried orzo","Dry Goods"),I(500,"ml","chicken stock","Dry Goods"),
+  I(1,"tsp","dried oregano","Herbs & Spices"),I(1,"tsp","olive oil","Dry Goods")],
+ steps:[
+  St("Pat the sea bass skin completely dry with kitchen paper and season both sides lightly."),
+  St("Halve the cherry tomatoes, slice the sun-dried tomatoes, mince the garlic and grate the lemon zest."),
+  St("Heat the olive oil in a large frying pan over a medium heat and cook the garlic briefly.",1),
+  St("Add the cherry tomatoes and cook until they begin to soften.",4),
+  St("Stir in the sun-dried tomatoes."),
+  St("Add the orzo and stir to toast it lightly.",1),
+  St("Pour in about half the stock and stir regularly to stop it sticking."),
+  St("Keep adding the remaining stock a little at a time, stirring every minute, until the orzo is tender and creamy.",10),
+  St("Stir in the oregano, then fold through the spinach."),
+  St("Add the lemon zest and half the lemon juice, then season with black pepper."),
+  St("Heat a second frying pan over a medium-high heat and lay the sea bass in skin-side down. Don't move it.",4),
+  St("Turn the fillets over and cook until just done.",2),
+  St("Rest the fish off the heat for a minute.",1),
+  St("Spoon the orzo onto warm plates and set a fillet on each."),
+  St("Scatter over the basil and finish with the last of the lemon juice.")],
+ equipment:["Large frying pan","Second frying pan","Fish slice","Measuring jug","Fine grater"],
+ tips:["Bone-dry skin is the whole secret to crisp sea bass.",
+  "Leave the fish alone while the skin crisps.",
+  "Stir the orzo often — that's what makes it creamy.",
+  "Loosen with a splash more stock if it tightens up."],
+ storage:{fridge:"Orzo keeps separately for up to 2 days. Eat the fish straight away.",freezer:"Not recommended."},
+ serveWith:["Steamed Tenderstem broccoli","Roasted asparagus","Mixed green salad","Garlic green beans"],
+ nutrition:{kcal:510,protein:38,carbs:48,fat:17,fibre:4}}],
+
+["r-fajita-rice-bowls",{name:"Chicken fajita rice bowls",servings:2,prep:10,cook:20,time:30,batch:false,
+ freezer:{ok:true,note:"The chicken and vegetable mixture freezes well. Freeze without the rice or fresh toppings."},
+ tags:["chicken","quick","freezer"],
+ ingredients:[
+  I(300,"g","chicken breast","Meat & Fish"),
+  I(1,"","red pepper","Produce"),I(1,"","yellow pepper","Produce"),I(0.5,"","onion","Produce"),
+  I(100,"g","black beans","Tins & Jars"),I(null,"","coriander","Produce"),I(1,"","lime","Produce"),
+  I(150,"g","basmati rice","Dry Goods"),I(1,"tbsp","fajita seasoning","Herbs & Spices"),
+  I(1,"tsp","smoked paprika","Herbs & Spices"),I(1,"tsp","olive oil","Dry Goods"),
+  I(60,"g","0% Greek yoghurt","Dairy & Eggs"),I(4,"tbsp","fresh salsa","Tins & Jars")],
+ steps:[
+  St("Rinse the rice until the water runs clear, then put it on with 300ml water — boil, then cover and simmer low.",12),
+  St("Slice the chicken into thin strips."),
+  St("Slice both peppers and the onion, and drain and rinse the black beans."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the chicken with the fajita seasoning and smoked paprika, stirring, until it starts to brown.",5),
+  St("Add the onion and peppers and cook, stirring now and then, until softened but still with a bite.",5),
+  St("Stir in the black beans and heat through.",3),
+  St("Check the chicken is cooked through — 75°C in the middle."),
+  St("Take the rice off the heat and leave it covered to steam.",5),
+  St("Fluff the rice with a fork and divide between two bowls."),
+  St("Spoon the chicken and vegetables over the rice."),
+  St("Add a spoonful of salsa and the Greek yoghurt to each bowl."),
+  St("Scatter with coriander and serve with lime wedges.")],
+ equipment:["Medium saucepan with lid","Large frying pan","Colander"],
+ tips:["Don't crowd the pan — cook the chicken in batches if you need to, for proper colour.",
+  "Fresh lime at the end lifts the whole bowl.",
+  "Sliced avocado is a good addition.",
+  "Leftover filling makes an excellent wrap or salad the next day."],
+ storage:{fridge:"Chicken mixture and rice separately, up to 3 days.",freezer:"Chicken and vegetable mixture only, up to 3 months. Cook fresh rice when reheating."},
+ serveWith:["Mixed salad","Grilled corn on the cob","Guacamole","Tortilla chips"],
+ nutrition:{kcal:565,protein:42,carbs:58,fat:12,fibre:8}}],
+
+["r-teriyaki-salmon",{name:"Teriyaki salmon with Asian rice and greens",servings:2,prep:10,cook:20,time:30,batch:false,
+ freezer:{ok:false,note:"Salmon is best cooked fresh."},
+ tags:["fish","quick"],
+ ingredients:[
+  I(2,"","salmon fillets","Meat & Fish"),
+  I(150,"g","Tenderstem broccoli","Produce"),I(1,"","carrot","Produce"),
+  I(0.5,"","cucumber","Produce"),I(2,"","spring onions","Produce"),
+  I(150,"g","basmati rice","Dry Goods"),I(3,"tbsp","teriyaki sauce","Tins & Jars"),
+  I(1,"tsp","sesame seeds","Dry Goods"),I(1,"tsp","olive oil","Dry Goods")],
+ steps:[
+  St("Heat the oven to 200°C / 180°C fan, or the air fryer to 190°C.",10),
+  St("Rinse the rice, then put it on with 300ml water — boil, then cover and simmer low.",12),
+  St("Slice the cucumber, peel the carrot into ribbons and slice the spring onions."),
+  St("Put the salmon on a lined tray and brush with half the teriyaki sauce."),
+  St("Bake until cooked through.",14),
+  St("Steam or boil the Tenderstem broccoli until tender with a bit of crunch left.",5),
+  St("Drain the broccoli well."),
+  St("Take the rice off the heat and leave it covered to steam.",5),
+  St("Fluff the rice with a fork, stirring through the rest of the teriyaki sauce if you like."),
+  St("Divide the rice between two bowls and arrange the broccoli, carrot ribbons and cucumber around the edge."),
+  St("Set a salmon fillet on each bowl."),
+  St("Scatter over the spring onions and sesame seeds, and serve with lime wedges.")],
+ equipment:["Medium saucepan with lid","Baking tray or air fryer","Vegetable peeler"],
+ tips:["Don't overcook the salmon — it should flake but stay moist.",
+  "Add the cucumber after cooking so it stays crisp.",
+  "A drizzle of sriracha works well if you like heat.",
+  "Marinating the salmon for 20–30 minutes first deepens the flavour."],
+ storage:{fridge:"Best fresh; leftover salmon up to 2 days.",freezer:"Not recommended."},
+ serveWith:["Steamed edamame","Pak choi","Sugar snap peas","Miso soup"],
+ nutrition:{kcal:610,protein:39,carbs:48,fat:25,fibre:5}}],
+
+["r-tikka-masala",{name:"Chicken tikka masala",servings:4,prep:20,cook:40,time:60,batch:true,
+ freezer:{ok:true,note:"Freezes excellently in one- or two-portion containers for up to 3 months."},
+ tags:["chicken","curry","batch","freezer"],
+ ingredients:[
+  I(1,"kg","chicken breast","Meat & Fish"),
+  I(2,"","onion","Produce"),I(4,"clove","garlic","Produce"),I(30,"g","fresh ginger","Produce"),
+  I(100,"g","baby spinach","Produce"),I(null,"","coriander","Produce"),
+  I(2,"tbsp","tikka curry paste","Tins & Jars"),I(2,"tsp","garam masala","Herbs & Spices"),
+  I(1,"tsp","ground cumin","Herbs & Spices"),I(1,"tsp","smoked paprika","Herbs & Spices"),
+  I(2,"tbsp","tomato purée","Tins & Jars"),I(800,"g","chopped tomatoes","Tins & Jars"),
+  I(250,"ml","chicken stock","Dry Goods"),I(100,"ml","light coconut milk","Tins & Jars"),
+  I(1,"tbsp","olive oil","Dry Goods"),
+  I(150,"g","0% Greek yoghurt","Dairy & Eggs"),
+  I(300,"g","basmati rice","Dry Goods")],
+ steps:[
+  St("Dice the chicken into even bite-sized pieces."),
+  St("Finely dice the onions, mince the garlic and grate the ginger."),
+  St("Measure out the spices and prepare the stock."),
+  St("Heat the olive oil in a large casserole over a medium-high heat."),
+  St("Brown half the chicken, then set it aside.",4),
+  St("Brown the remaining chicken and set aside with the rest.",4),
+  St("Reduce the heat to medium and cook the onions until softened.",8),
+  St("Add the garlic and ginger and cook until fragrant.",1),
+  St("Stir in the tikka paste, garam masala, cumin and smoked paprika and cook out.",1),
+  St("Stir in the tomato purée and cook for a minute.",1),
+  St("Add the chopped tomatoes and chicken stock, stir well and bring to a gentle simmer."),
+  St("Return the chicken, cover, and simmer gently until cooked through.",15),
+  St("Meanwhile cook the basmati rice according to the packet.",12),
+  St("Stir in the coconut milk and simmer.",2),
+  St("Take the pan off the heat and stir through the Greek yoghurt until incorporated."),
+  St("Fold in the spinach until wilted, then taste and adjust the seasoning."),
+  St("Scatter with coriander and serve with the rice.")],
+ equipment:["Large casserole dish","Grater","Measuring jug","Medium saucepan for rice"],
+ tips:["Stir the yoghurt in off the heat so it doesn't split.",
+  "It tastes even better the next day as the spices develop.",
+  "Portion it before freezing so reheating is quick.",
+  "Mango chutney or an extra spoon of yoghurt finishes it nicely."],
+ storage:{fridge:"Up to 3 days in airtight containers.",freezer:"One- or two-portion containers for up to 3 months. Defrost overnight and reheat thoroughly."},
+ serveWith:["Basmati rice","Wholemeal naan","Steamed green beans","Roasted cauliflower","Cucumber and mint yoghurt"],
+ nutrition:{kcal:495,protein:55,carbs:17,fat:19,fibre:5,note:"Excluding rice"}}],
+/* ---- part B ---- */
+["r-beef-bean-chilli",{name:"Beef and bean chilli",servings:6,prep:15,cook:45,time:60,batch:true,
+ freezer:{ok:true,note:"Freezes excellently in one- or two-portion containers for up to 3 months."},
+ tags:["beef","batch","freezer"],
+ ingredients:[
+  I(500,"g","lean beef mince","Meat & Fish"),
+  I(1,"","onion","Produce"),I(1,"","red pepper","Produce"),I(1,"","yellow pepper","Produce"),
+  I(3,"clove","garlic","Produce"),I(null,"","coriander","Produce"),I(1,"","lime","Produce"),
+  I(800,"g","chopped tomatoes","Tins & Jars"),I(2,"tbsp","tomato purée","Tins & Jars"),
+  I(300,"ml","beef stock","Dry Goods"),I(400,"g","kidney beans","Tins & Jars"),
+  I(400,"g","black beans","Tins & Jars"),I(1,"tbsp","smoked paprika","Herbs & Spices"),
+  I(2,"tsp","ground cumin","Herbs & Spices"),I(1,"tsp","dried oregano","Herbs & Spices"),
+  I(1,"tsp","chilli powder","Herbs & Spices"),I(1,"tsp","olive oil","Dry Goods")],
+ steps:[
+  St("Finely dice the onion and peppers, and mince the garlic."),
+  St("Drain and rinse both tins of beans, and prepare the beef stock."),
+  St("Heat the olive oil in a large casserole over a medium-high heat."),
+  St("Add the beef mince and cook, breaking it up, until fully browned.",8),
+  St("Drain off any excess liquid."),
+  St("Add the onion and peppers and cook until softened.",6),
+  St("Stir in the garlic and cook until fragrant.",1),
+  St("Add the smoked paprika, cumin, oregano and chilli powder and cook to release the flavours.",1),
+  St("Stir in the tomato purée and cook out.",1),
+  St("Add the chopped tomatoes and beef stock, stir, and bring to a gentle simmer."),
+  St("Stir in the kidney beans and black beans."),
+  St("Cover loosely and simmer gently, stirring occasionally.",20),
+  St("Take the lid off for the last few minutes if you want it thicker.",5),
+  St("Taste and season, then add a squeeze of lime."),
+  St("Stir through the coriander and serve, or cool and portion for the freezer.")],
+ equipment:["Large casserole dish","Measuring jug","Can opener"],
+ tips:["Better the next day, once the flavours have settled.",
+  "Simmer an extra 20–30 minutes for a richer result.",
+  "A small square of dark chocolate in the last 10 minutes adds real depth.",
+  "Freeze in meal-sized portions for easy weeknights."],
+ storage:{fridge:"Up to 4 days in airtight containers.",freezer:"One- or two-portion containers for up to 3 months."},
+ serveWith:["Basmati rice","Jacket potato","Sweet potato wedges","Wholemeal tortillas","Greek yoghurt and coriander"],
+ nutrition:{kcal:395,protein:34,carbs:24,fat:14,fibre:9,note:"Excluding rice"}}],
+
+["r-korean-beef",{name:"Korean beef mince bowls",servings:2,prep:10,cook:20,time:30,batch:false,
+ freezer:{ok:true,note:"The beef mixture freezes very well. Freeze without the rice or fresh vegetables."},
+ tags:["beef","quick","freezer"],
+ ingredients:[
+  I(250,"g","lean beef mince","Meat & Fish"),
+  I(2,"","spring onions","Produce"),I(0.5,"","cucumber","Produce"),I(1,"","carrot","Produce"),
+  I(2,"clove","garlic","Produce"),I(1,"tsp","fresh ginger","Produce"),
+  I(150,"g","jasmine rice","Dry Goods"),I(2,"tbsp","reduced-salt soy sauce","Tins & Jars"),
+  I(1,"tbsp","hoisin sauce","Tins & Jars"),I(1,"tbsp","honey","Dry Goods"),
+  I(1,"tsp","gochujang paste","Tins & Jars"),I(1,"tsp","sesame oil","Dry Goods"),
+  I(1,"tsp","sesame seeds","Dry Goods"),I(1,"tsp","olive oil","Dry Goods")],
+ steps:[
+  St("Rinse the rice until the water runs clear, then put it on with 300ml water — boil, then cover and simmer low.",12),
+  St("Slice the spring onions and cucumber, and grate the carrot."),
+  St("Mince the garlic and grate the ginger."),
+  St("Mix the soy sauce, hoisin, honey, gochujang and sesame oil in a small bowl until smooth."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the beef mince and cook, breaking it apart, until browned.",5),
+  St("Stir in the garlic and ginger and cook until fragrant.",1),
+  St("Pour in the sauce and stir until the mince is evenly coated."),
+  St("Simmer gently until slightly thickened.",4),
+  St("Take the rice off the heat and leave it covered to steam.",5),
+  St("Fluff the rice with a fork and divide between two bowls."),
+  St("Spoon the beef over the rice and arrange the cucumber and carrot alongside."),
+  St("Scatter with spring onions and sesame seeds, and serve with lime wedges.")],
+ equipment:["Medium saucepan with lid","Large frying pan","Grater","Small bowl"],
+ tips:["Gochujang brings gentle heat — adjust to taste.",
+  "The raw vegetables are the point: they balance the rich beef.",
+  "A fried egg on top is a very good idea.",
+  "Double the beef and freeze half for a fast midweek dinner."],
+ storage:{fridge:"Beef and rice separately, up to 3 days.",freezer:"Beef mixture only, up to 3 months."},
+ serveWith:["Steamed Tenderstem broccoli","Pak choi","Kimchi","Edamame","Cucumber salad"],
+ nutrition:{kcal:575,protein:36,carbs:55,fat:20,fibre:4}}],
+
+["r-salmon-orzo",{name:"Lemon and garlic salmon orzo",servings:2,prep:10,cook:25,time:35,batch:false,
+ freezer:{ok:false,note:"Best fresh — the salmon and creamy orzo don't freeze well."},
+ tags:["fish"],
+ ingredients:[
+  I(2,"","salmon fillets","Meat & Fish"),
+  I(150,"g","cherry tomatoes","Produce"),I(75,"g","baby spinach","Produce"),
+  I(2,"clove","garlic","Produce"),I(1,"","lemon","Produce"),I(null,"","parsley","Produce"),
+  I(150,"g","dried orzo","Dry Goods"),I(500,"ml","chicken stock","Dry Goods"),
+  I(1,"tsp","olive oil","Dry Goods"),I(25,"g","Parmesan","Dairy & Eggs")],
+ steps:[
+  St("Heat the oven to 200°C / 180°C fan.",10),
+  St("Pat the salmon dry and season both sides."),
+  St("Halve the cherry tomatoes, mince the garlic, and zest and juice the lemon."),
+  St("Put the salmon on a lined tray and bake until it flakes easily.",14),
+  St("Meanwhile heat the olive oil in a large frying pan over a medium heat and cook the garlic briefly.",1),
+  St("Add the cherry tomatoes and cook until softened.",3),
+  St("Stir in the orzo and cook, stirring, to toast it lightly.",1),
+  St("Pour in about half the stock and stir frequently as it absorbs."),
+  St("Add the remaining stock gradually, stirring regularly, until the orzo is tender and creamy.",10),
+  St("Stir in the spinach until wilted, then add the Parmesan."),
+  St("Stir in the lemon zest and half the juice, then taste and season."),
+  St("Rest the salmon for a minute out of the oven.",1),
+  St("Spoon the orzo onto warm plates and set a fillet on each."),
+  St("Sprinkle with parsley and finish with the rest of the lemon juice.")],
+ equipment:["Large frying pan","Baking tray","Measuring jug","Fine grater"],
+ tips:["Add the stock gradually for a risotto-like creaminess.",
+  "Lemon juice always goes in at the end so it stays bright.",
+  "The salmon should stay moist in the middle.",
+  "Asparagus or Tenderstem can go in for the last 5 minutes."],
+ storage:{fridge:"Best fresh; leftovers up to 2 days.",freezer:"Not recommended."},
+ serveWith:["Garlic green beans","Roasted asparagus","Mixed leaf salad","Steamed broccoli"],
+ nutrition:{kcal:595,protein:41,carbs:46,fat:24,fibre:4}}],
+
+["r-cajun-chicken-pasta",{name:"Creamy Cajun chicken pasta",servings:2,prep:10,cook:20,time:30,batch:false,
+ freezer:{ok:true,note:"The chicken and sauce freeze well — cook fresh pasta when reheating."},
+ tags:["chicken","pasta","quick"],
+ ingredients:[
+  I(300,"g","chicken breast","Meat & Fish"),
+  I(0.5,"","onion","Produce"),I(1,"","red pepper","Produce"),I(2,"clove","garlic","Produce"),
+  I(75,"g","baby spinach","Produce"),I(100,"g","cherry tomatoes","Produce"),
+  I(null,"","parsley","Produce"),
+  I(150,"g","dried pasta","Dry Goods"),I(2,"tsp","Cajun seasoning","Herbs & Spices"),
+  I(100,"ml","chicken stock","Dry Goods"),I(1,"tsp","olive oil","Dry Goods"),
+  I(50,"g","light cream cheese","Dairy & Eggs"),I(50,"ml","semi-skimmed milk","Dairy & Eggs"),
+  I(20,"g","Parmesan","Dairy & Eggs")],
+ steps:[
+  St("Bring a saucepan of salted water to the boil."),
+  St("Slice the chicken into thin strips, dice the onion, slice the pepper and mince the garlic."),
+  St("Halve the cherry tomatoes and mix the cream cheese, milk and stock together in a jug."),
+  St("Add the pasta to the boiling water and cook until al dente.",11),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the chicken with the Cajun seasoning and cook until lightly browned.",5),
+  St("Add the onion and pepper and cook until softened.",4),
+  St("Stir in the garlic and cook until fragrant.",1),
+  St("Add the cherry tomatoes and cook.",2),
+  St("Pour in the cream cheese mixture and stir until completely melted."),
+  St("Add the Parmesan and simmer gently until the sauce thickens.",3),
+  St("Stir the spinach through until just wilted."),
+  St("Drain the pasta and fold it into the sauce until evenly coated."),
+  St("Taste, season, and serve sprinkled with parsley and extra Parmesan.")],
+ equipment:["Medium saucepan","Large frying pan","Colander","Measuring jug"],
+ tips:["Adjust the Cajun seasoning to your heat preference.",
+  "Keep stirring while the cream cheese melts for a smooth sauce.",
+  "The cherry tomatoes cut through the richness.",
+  "If batch cooking, freeze the chicken and sauce only."],
+ storage:{fridge:"Up to 3 days in an airtight container.",freezer:"Chicken and sauce for up to 3 months."},
+ serveWith:["Garlic bread","Mixed green salad","Steamed broccoli","Roasted asparagus"],
+ nutrition:{kcal:610,protein:46,carbs:49,fat:18,fibre:4}}],
+
+["r-shawarma-flatbreads",{name:"Chicken shawarma flatbreads",servings:2,prep:15,cook:15,time:60,batch:false,
+ freezer:{ok:true,note:"The cooked chicken freezes very well. Make the flatbreads and salad fresh."},
+ tags:["chicken","marinate"],
+ ingredients:[
+  I(300,"g","chicken breast","Meat & Fish"),
+  I(0.5,"","lettuce","Produce"),I(0.5,"","cucumber","Produce"),I(2,"","tomatoes","Produce"),
+  I(0.5,"","red onion","Produce"),I(null,"","coriander","Produce"),I(1,"","lemon","Produce"),
+  I(1,"clove","garlic","Produce"),
+  I(2,"","wholemeal flatbreads","Bakery"),
+  I(1,"tsp","ground cumin","Herbs & Spices"),I(1,"tsp","smoked paprika","Herbs & Spices"),
+  I(1,"tsp","ground coriander","Herbs & Spices"),I(0.5,"tsp","garlic granules","Herbs & Spices"),
+  I(0.5,"tsp","ground cinnamon","Herbs & Spices"),I(0.5,"tsp","dried oregano","Herbs & Spices"),
+  I(1,"tsp","olive oil","Dry Goods"),
+  I(175,"g","0% Greek yoghurt","Dairy & Eggs")],
+ steps:[
+  St("Slice the chicken into thin strips."),
+  St("In a large bowl mix 75g of the yoghurt with the cumin, smoked paprika, ground coriander, garlic granules, cinnamon, oregano, lemon juice and olive oil."),
+  St("Add the chicken and coat it thoroughly, then cover and refrigerate.",30),
+  St("Meanwhile shred the lettuce, dice the cucumber and tomatoes, and slice the red onion."),
+  St("Mix the remaining 100g yoghurt with the minced garlic, lemon juice and black pepper for the sauce."),
+  St("Heat a large frying pan or griddle over a medium-high heat."),
+  St("Add the marinated chicken and cook, stirring occasionally, until lightly charred and cooked through.",10),
+  St("Warm the flatbreads in a dry pan or the microwave.",1),
+  St("Rest the chicken for a couple of minutes.",2),
+  St("Spread a generous spoonful of garlic yoghurt onto each flatbread."),
+  St("Add the lettuce, then the cucumber and tomatoes."),
+  St("Pile on the shawarma chicken."),
+  St("Scatter over the red onion and coriander, fold, and serve.")],
+ equipment:["Large mixing bowl","Small bowl","Large frying pan or griddle","Tongs"],
+ tips:["Marinate overnight for even more flavour.",
+  "High heat gives you the charred edges that make it taste right.",
+  "The garlic yoghurt doubles as a very good salad dressing.",
+  "Leftover chicken is perfect in wraps, salads or rice bowls."],
+ storage:{fridge:"Cooked chicken up to 3 days in an airtight container.",freezer:"Cooked chicken for up to 3 months."},
+ serveWith:["Sweet potato wedges","Greek salad","Couscous","Hummus","Pickled vegetables"],
+ nutrition:{kcal:560,protein:47,carbs:42,fat:18,fibre:5}}],
+
+["r-chicken-meatballs",{name:"Tuscan chicken meatballs",servings:4,prep:20,cook:30,time:50,batch:true,
+ freezer:{ok:true,note:"Freeze the meatballs in the sauce for up to 3 months."},
+ tags:["chicken","batch","freezer"],
+ ingredients:[
+  I(500,"g","chicken mince","Meat & Fish"),
+  I(1,"","onion","Produce"),I(4,"clove","garlic","Produce"),
+  I(150,"g","cherry tomatoes","Produce"),I(75,"g","sun-dried tomatoes","Tins & Jars"),
+  I(100,"g","baby spinach","Produce"),I(null,"","basil","Produce"),
+  I(30,"g","dried breadcrumbs","Dry Goods"),I(1,"","egg","Dairy & Eggs"),
+  I(1,"tsp","Italian mixed herbs","Herbs & Spices"),I(1,"tsp","paprika","Herbs & Spices"),
+  I(1,"tbsp","tomato purée","Tins & Jars"),I(400,"g","chopped tomatoes","Tins & Jars"),
+  I(150,"ml","chicken stock","Dry Goods"),I(1,"tsp","olive oil","Dry Goods"),
+  I(75,"g","light cream cheese","Dairy & Eggs"),I(20,"g","Parmesan","Dairy & Eggs"),
+  I(200,"g","dried pasta","Dry Goods")],
+ steps:[
+  St("Finely dice the onion and mince all four garlic cloves."),
+  St("Halve the cherry tomatoes and finely chop the sun-dried tomatoes."),
+  St("In a large bowl combine the chicken mince, egg, breadcrumbs, two of the minced garlic cloves, Italian herbs, paprika, salt and pepper."),
+  St("Mix until just combined — don't overwork it — then shape into about 12 even meatballs."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the meatballs and cook, turning regularly, until browned all over.",10),
+  St("Lift the meatballs out and set aside."),
+  St("Add the onion to the same pan and cook until softened.",4),
+  St("Stir in the remaining garlic and cook until fragrant.",1),
+  St("Stir in the tomato purée and cook out.",1),
+  St("Add the chopped tomatoes, chicken stock and sun-dried tomatoes, and stir well."),
+  St("Return the meatballs to the sauce, cover, and simmer gently until cooked through.",10),
+  St("Meanwhile cook the pasta according to the packet.",11),
+  St("Stir the cream cheese into the sauce until smooth, then add the Parmesan and stir until melted."),
+  St("Fold the spinach through until wilted, then taste and adjust the seasoning."),
+  St("Scatter with basil and serve over the pasta.")],
+ equipment:["Large mixing bowl","Large frying pan","Measuring jug"],
+ tips:["Don't overmix the mince or the meatballs go dense.",
+  "Browning them first puts real flavour into the sauce.",
+  "The sauce thickens further as it stands.",
+  "Freeze the meatballs in the sauce, without pasta, for the best result."],
+ storage:{fridge:"Up to 3 days in airtight containers.",freezer:"Meal-sized portions for up to 3 months."},
+ serveWith:["Orzo","Penne","Garlic bread","Green beans","Steamed broccoli"],
+ nutrition:{kcal:430,protein:42,carbs:13,fat:21,fibre:3,note:"Excluding pasta"}}],
+/* ---- part C ---- */
+["r-chicken-tagine",{name:"Moroccan chicken tagine",servings:4,prep:20,cook:40,time:60,batch:true,
+ freezer:{ok:true,note:"Freezes excellently in one- or two-portion containers for up to 3 months."},
+ tags:["chicken","batch","freezer"],
+ ingredients:[
+  I(1,"kg","chicken breast","Meat & Fish"),
+  I(2,"","onion","Produce"),I(3,"clove","garlic","Produce"),I(2,"","carrot","Produce"),
+  I(400,"g","chickpeas","Tins & Jars"),I(50,"g","dried apricots","Dry Goods"),
+  I(null,"","coriander","Produce"),I(1,"","lemon","Produce"),
+  I(400,"g","chopped tomatoes","Tins & Jars"),I(300,"ml","chicken stock","Dry Goods"),
+  I(2,"tsp","ground cumin","Herbs & Spices"),I(2,"tsp","smoked paprika","Herbs & Spices"),
+  I(1,"tsp","ground cinnamon","Herbs & Spices"),I(1,"tsp","ground turmeric","Herbs & Spices"),
+  I(1,"tsp","ground coriander","Herbs & Spices"),I(1,"tbsp","tomato purée","Tins & Jars"),
+  I(1,"tbsp","olive oil","Dry Goods"),I(200,"g","wholewheat couscous","Dry Goods")],
+ steps:[
+  St("Dice the chicken into even bite-sized pieces."),
+  St("Finely dice the onions, mince the garlic and peel and slice the carrots."),
+  St("Drain and rinse the chickpeas, chop the apricots and prepare the stock."),
+  St("Heat the olive oil in a large casserole over a medium-high heat."),
+  St("Brown half the chicken, then set it aside.",4),
+  St("Brown the remaining chicken and set aside with the rest.",4),
+  St("Reduce the heat to medium and cook the onions until softened.",6),
+  St("Stir in the garlic, then the cumin, paprika, cinnamon, turmeric and ground coriander, and cook until fragrant.",1),
+  St("Stir in the tomato purée and cook out.",1),
+  St("Return the chicken to the pan with the chopped tomatoes and chicken stock."),
+  St("Stir in the carrots, chickpeas and apricots, and bring to a gentle simmer."),
+  St("Cover and simmer gently until the chicken is cooked and the carrots are tender.",20),
+  St("Meanwhile prepare the couscous according to the packet.",10),
+  St("Taste and adjust the seasoning, then stir through the coriander."),
+  St("Finish with a squeeze of lemon, fluff the couscous, and serve with lemon wedges.")],
+ equipment:["Large casserole dish or Dutch oven","Measuring jug","Saucepan or heatproof bowl for couscous"],
+ tips:["The apricots add a gentle sweetness against the warm spices — leave them out if you'd rather.",
+  "Better the next day as the spices develop.",
+  "Courgette or butternut squash can go in for the last 20 minutes.",
+  "Freeze without the couscous and make that fresh."],
+ storage:{fridge:"Up to 3 days in airtight containers.",freezer:"One- or two-portion containers for up to 3 months."},
+ serveWith:["Wholewheat couscous","Steamed green beans","Roasted broccoli","Flatbread","Greek yoghurt with mint"],
+ nutrition:{kcal:470,protein:53,carbs:20,fat:16,fibre:6,note:"Excluding couscous"}}],
+
+["r-salmon-traybake",{name:"Mediterranean salmon traybake",servings:2,prep:15,cook:35,time:50,batch:false,
+ freezer:{ok:false,note:"Best fresh. The roasted vegetables keep 2 days but the salmon is best eaten straight away."},
+ tags:["fish","one tray"],
+ ingredients:[
+  I(2,"","salmon fillets","Meat & Fish"),
+  I(300,"g","baby potatoes","Produce"),I(150,"g","cherry tomatoes","Produce"),
+  I(1,"","red onion","Produce"),I(1,"","courgette","Produce"),
+  I(150,"g","asparagus","Produce"),I(2,"clove","garlic","Produce"),
+  I(1,"","lemon","Produce"),I(null,"","parsley","Produce"),
+  I(1,"tbsp","olive oil","Dry Goods"),I(1,"tsp","dried oregano","Herbs & Spices"),
+  I(0.5,"tsp","smoked paprika","Herbs & Spices")],
+ steps:[
+  St("Heat the oven to 200°C / 180°C fan.",10),
+  St("Halve the baby potatoes, slice the courgette into half-moons and cut the red onion into wedges."),
+  St("Crush the garlic and trim the woody ends from the asparagus."),
+  St("Pat the salmon dry and season with salt and black pepper."),
+  St("Put the potatoes in the roasting tray with half the olive oil, the smoked paprika, oregano, salt and pepper, and toss to coat."),
+  St("Roast the potatoes on their own.",20),
+  St("Meanwhile slice the lemon into wedges and chop the herbs."),
+  St("Take the tray out and add the cherry tomatoes, courgette, onion and garlic, tossing everything together."),
+  St("Sit the salmon fillets on the tray, arrange the asparagus around them and drizzle with the remaining oil."),
+  St("Return to the oven and roast until the salmon flakes easily and the vegetables have caught at the edges.",14),
+  St("Squeeze over fresh lemon juice."),
+  St("Scatter with parsley, check the seasoning and serve.")],
+ equipment:["Large roasting tray","Mixing bowl","Tongs or spatula"],
+ tips:["Roasting the potatoes first is what stops everything else overcooking.",
+  "Check the salmon at 12 minutes.",
+  "Olives or a little feta make it more Mediterranean still.",
+  "Works just as well with sea bass or cod."],
+ storage:{fridge:"Leftover vegetables up to 2 days; salmon best eaten fresh.",freezer:"Not recommended."},
+ serveWith:["Mixed green salad","Garlic green beans","Crusty wholemeal bread","Greek yoghurt with lemon and herbs"],
+ nutrition:{kcal:590,protein:40,carbs:31,fat:33,fibre:6}}],
+
+["r-mexican-chicken-rice",{name:"Mexican chicken and black bean rice",servings:2,prep:10,cook:25,time:35,batch:false,
+ freezer:{ok:true,note:"Freezes very well. Freeze without the yoghurt or fresh toppings."},
+ tags:["chicken","freezer"],
+ ingredients:[
+  I(300,"g","chicken breast","Meat & Fish"),
+  I(1,"","red pepper","Produce"),I(0.5,"","onion","Produce"),
+  I(100,"g","sweetcorn","Tins & Jars"),I(100,"g","black beans","Tins & Jars"),
+  I(null,"","coriander","Produce"),I(1,"","lime","Produce"),
+  I(150,"g","basmati rice","Dry Goods"),I(200,"g","chopped tomatoes","Tins & Jars"),
+  I(1,"tbsp","fajita seasoning","Herbs & Spices"),I(1,"tsp","smoked paprika","Herbs & Spices"),
+  I(1,"tsp","olive oil","Dry Goods"),
+  I(60,"g","0% Greek yoghurt","Dairy & Eggs"),I(30,"g","reduced-fat Cheddar","Dairy & Eggs")],
+ steps:[
+  St("Rinse the rice until the water runs clear, then put it on with 300ml water — boil, then cover and simmer low.",12),
+  St("Dice the chicken, onion and pepper, and drain and rinse the black beans."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the chicken with the fajita seasoning and smoked paprika and cook until lightly browned.",5),
+  St("Add the onion and pepper and cook until softened.",4),
+  St("Stir in the chopped tomatoes and mix well."),
+  St("Add the sweetcorn and black beans and simmer until the sauce thickens slightly.",5),
+  St("Check the chicken is cooked through."),
+  St("Take the rice off the heat and leave it covered to steam.",5),
+  St("Fluff the rice with a fork and stir it into the chicken mixture."),
+  St("Taste and season, then divide between two bowls."),
+  St("Sprinkle with Cheddar, add a spoonful of yoghurt, and serve with coriander and lime wedges.")],
+ equipment:["Medium saucepan with lid","Large frying pan","Colander"],
+ tips:["Fresh lime just before serving lifts the whole thing.",
+  "Chopped chilli or hot sauce if you want more heat.",
+  "Excellent for meal prep — it reheats beautifully.",
+  "Freeze in meal-sized portions for quick weekday lunches."],
+ storage:{fridge:"Up to 3 days in an airtight container.",freezer:"One- or two-portion containers for up to 3 months."},
+ serveWith:["Mixed green salad","Guacamole","Salsa","Tortilla chips"],
+ nutrition:{kcal:595,protein:44,carbs:57,fat:14,fibre:8}}],
+
+["r-beef-stirfry",{name:"Beef and pepper stir-fry",servings:2,prep:10,cook:15,time:25,batch:false,
+ freezer:{ok:false,note:"The vegetables lose their crispness after freezing."},
+ tags:["beef","quick"],
+ ingredients:[
+  I(300,"g","lean beef strips","Meat & Fish"),
+  I(1,"","red pepper","Produce"),I(1,"","yellow pepper","Produce"),
+  I(150,"g","Tenderstem broccoli","Produce"),I(1,"","carrot","Produce"),
+  I(2,"","spring onions","Produce"),I(2,"clove","garlic","Produce"),I(1,"tsp","fresh ginger","Produce"),
+  I(150,"g","jasmine rice","Dry Goods"),I(2,"tbsp","reduced-salt soy sauce","Tins & Jars"),
+  I(1,"tbsp","hoisin sauce","Tins & Jars"),I(1,"tbsp","honey","Dry Goods"),
+  I(1,"tsp","sesame oil","Dry Goods"),I(1,"tsp","cornflour","Dry Goods"),
+  I(1,"tsp","olive oil","Dry Goods"),I(1,"tsp","sesame seeds","Dry Goods")],
+ steps:[
+  St("Rinse the rice, then put it on with 300ml water — boil, then cover and simmer low.",12),
+  St("Slice the peppers and carrot, cut the broccoli into bite-sized pieces and slice the spring onions."),
+  St("Mince the garlic and grate the ginger."),
+  St("Mix the soy sauce, hoisin, honey, sesame oil, cornflour and 2 tbsp cold water in a small bowl until smooth."),
+  St("Heat the olive oil in a wok over a high heat."),
+  St("Add the beef strips and stir-fry until browned, then remove and set aside.",3),
+  St("Add the peppers, broccoli and carrot and stir-fry until just tender.",4),
+  St("Add the garlic and ginger and cook until fragrant.",1),
+  St("Return the beef to the wok and pour in the sauce."),
+  St("Stir continuously until the sauce thickens and coats everything."),
+  St("Stir in half the spring onions."),
+  St("Take the rice off the heat and leave it covered to steam.",5),
+  St("Fluff the rice, divide between two bowls and spoon the stir-fry over."),
+  St("Garnish with the remaining spring onions and sesame seeds, and serve.")],
+ equipment:["Medium saucepan with lid","Large wok","Small bowl"],
+ tips:["Cook the beef fast over a very high heat to keep it tender.",
+  "Have everything chopped before you start — stir-fries move quickly.",
+  "Don't crowd the wok or the beef steams instead of browning.",
+  "Works just as well with chicken or pork strips."],
+ storage:{fridge:"Up to 2 days in an airtight container.",freezer:"Not recommended."},
+ serveWith:["Jasmine rice","Egg noodles","Pak choi","Steamed edamame","Cucumber salad"],
+ nutrition:{kcal:560,protein:39,carbs:53,fat:17,fibre:5}}],
+
+["r-fajita-filling",{name:"Chicken fajita filling",servings:4,prep:15,cook:20,time:35,batch:true,
+ freezer:{ok:true,note:"Freeze the filling only, then make fresh rice, wraps or salad when you serve it."},
+ tags:["chicken","batch","freezer"],
+ ingredients:[
+  I(600,"g","chicken breast","Meat & Fish"),
+  I(2,"","red pepper","Produce"),I(1,"","yellow pepper","Produce"),I(2,"","onion","Produce"),
+  I(400,"g","black beans","Tins & Jars"),I(null,"","coriander","Produce"),I(2,"","lime","Produce"),
+  I(2,"tbsp","fajita seasoning","Herbs & Spices"),I(1,"tsp","smoked paprika","Herbs & Spices"),
+  I(1,"tsp","ground cumin","Herbs & Spices"),I(1,"tbsp","olive oil","Dry Goods")],
+ steps:[
+  St("Slice the chicken into thin strips."),
+  St("Slice the onions and all the peppers."),
+  St("Drain and rinse the black beans, and chop the coriander."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the chicken with the fajita seasoning, smoked paprika and cumin, and cook until lightly browned.",5),
+  St("Add the onions and cook.",3),
+  St("Add the peppers and cook until softened but still slightly crisp.",5),
+  St("Stir in the black beans and heat through.",3),
+  St("Taste and adjust the seasoning."),
+  St("Take the pan off the heat and stir through the coriander."),
+  St("Squeeze over the juice of one lime."),
+  St("Serve in warm wraps or over rice — or cool completely, divide into two containers of two portions each, label and freeze.")],
+ equipment:["Large frying pan or wok","Colander"],
+ tips:["High heat gives you those lightly charred vegetables.",
+  "Don't overcook the peppers — they should keep a little bite.",
+  "Just as good in wraps, burrito bowls, quesadillas or a loaded baked potato.",
+  "Make the rice or wraps fresh when reheating."],
+ storage:{fridge:"Up to 3 days in an airtight container.",freezer:"Meal-sized portions for up to 3 months."},
+ serveWith:["Wholemeal wraps","Basmati rice","Sweet potato wedges","Mixed salad","Salsa, Greek yoghurt and guacamole"],
+ nutrition:{kcal:360,protein:44,carbs:14,fat:10,fibre:5,note:"Filling only"}}],
+
+["r-taco-beef-sauce",{name:"Taco beef pasta sauce",servings:4,prep:15,cook:25,time:40,batch:true,
+ freezer:{ok:true,note:"Freeze the sauce only and cook fresh pasta when you serve it."},
+ tags:["beef","batch","freezer"],
+ ingredients:[
+  I(400,"g","lean beef mince","Meat & Fish"),
+  I(1,"","onion","Produce"),I(1,"","red pepper","Produce"),I(2,"clove","garlic","Produce"),
+  I(100,"g","sweetcorn","Tins & Jars"),I(null,"","coriander","Produce"),I(2,"","lime","Produce"),
+  I(2,"tbsp","tomato purée","Tins & Jars"),I(400,"g","chopped tomatoes","Tins & Jars"),
+  I(200,"ml","beef stock","Dry Goods"),I(1.5,"tbsp","taco seasoning","Herbs & Spices"),
+  I(1,"tsp","smoked paprika","Herbs & Spices"),I(1,"tsp","olive oil","Dry Goods"),
+  I(300,"g","dried pasta","Dry Goods"),
+  I(100,"g","reduced-fat Cheddar","Dairy & Eggs"),I(100,"g","0% Greek yoghurt","Dairy & Eggs")],
+ steps:[
+  St("Finely dice the onion and red pepper, and mince the garlic."),
+  St("Prepare the beef stock and measure out the taco seasoning and smoked paprika."),
+  St("Heat the olive oil in a large frying pan over a medium-high heat."),
+  St("Add the beef mince and cook, breaking it apart, until browned.",8),
+  St("Drain off any excess liquid."),
+  St("Add the onion and pepper and cook until softened.",5),
+  St("Stir in the garlic and cook until fragrant.",1),
+  St("Stir in the tomato purée with the taco seasoning and smoked paprika, and cook out.",1),
+  St("Pour in the chopped tomatoes and beef stock, and stir in the sweetcorn."),
+  St("Bring to a gentle simmer and cook uncovered until thickened.",10),
+  St("To serve now: cook the pasta, drain, and stir it into the sauce.",11),
+  St("Off the heat, stir through the Greek yoghurt, then the Cheddar until melted."),
+  St("Garnish with coriander and serve with lime wedges."),
+  St("To batch cook: cool completely, divide into two containers of two portions each, label and freeze.")],
+ equipment:["Large frying pan or sauté pan","Measuring jug"],
+ tips:["Freezing the sauce on its own gives a far better texture than freezing the finished dish.",
+  "Stir the yoghurt in off the heat so it doesn't split.",
+  "Jalapeños or chilli flakes if you want it spicier.",
+  "Also good in wraps, over a baked potato, or on nachos."],
+ storage:{fridge:"Sauce keeps 3 days in an airtight container.",freezer:"Two containers of two portions each, up to 3 months."},
+ serveWith:["Penne or rigatoni","Garlic bread","Mixed green salad","Steamed broccoli","Extra lime wedges"],
+ nutrition:{kcal:585,protein:42,carbs:49,fat:15,fibre:7,note:"With pasta, cheese and yoghurt. Sauce alone: 275 kcal, 28g protein"}}]
 ];
-function maybeSeed(){
-  if(S.seeded) return;
-  if(all("recipe").length===0) SAMPLES.forEach(([id,doc])=>put("recipe", id, doc));
+/* Runs once per household, not once per device — the version lives in the
+   shared store, so the second phone doesn't repeat the work. */
+function ensureRecipes(){
+  /* Clear retired starters whenever they turn up, whatever order the
+     devices happen to sync in. Dropping an already-dropped id is a no-op. */
+  RETIRED.forEach(id=>{ const it = S.items[id]; if(it && !it.deleted) drop(id); });
+  const v = get("setting:recipes");
+  if(v && (v.doc.v||0) >= RECIPE_SET) return;
+  RECIPES.forEach(([id,doc])=>put("recipe", id, doc));
+  put("setting","setting:recipes",{v:RECIPE_SET});
   S.seeded = true; saveLocal();
 }
 
@@ -1216,7 +1927,7 @@ if(connected()){
   startSync();                      // seeds after first successful pull if empty
   if(invited) setTimeout(()=>toast("Connected to your shared plan"), 600);
 }else{
-  maybeSeed();
+  ensureRecipes();
   setSync("off");
 }
 render();
