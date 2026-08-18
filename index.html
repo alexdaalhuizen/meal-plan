@@ -139,6 +139,18 @@ label.f{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin
 .item .txt{flex:1;line-height:1.35;font-size:14.5px}
 .item .txt .src{display:block;font-size:11.5px;color:var(--muted);margin-top:1px}
 .item.done .txt{text-decoration:line-through;color:var(--muted)}
+.qtybtn{
+  border:0;background:none;padding:0 1px;font:inherit;font-weight:700;color:var(--ink);
+  border-bottom:1.5px dotted var(--muted);line-height:1.2;
+}
+.qtybtn:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.qtybtn.tweaked{color:var(--accent);border-bottom-style:solid;border-bottom-color:var(--accent)}
+.item.done .qtybtn{border-bottom:0;color:inherit}
+.stepper{display:flex;align-items:center;justify-content:center;gap:14px;margin:18px 0 6px}
+.stepper button{width:52px;height:52px;border-radius:14px;border:1px solid var(--line);
+  background:var(--card);font-size:24px;line-height:1;font-weight:600}
+.stepper button:hover{border-color:var(--accent);color:var(--accent)}
+.stepper input{width:110px;text-align:center;font-size:22px;font-weight:700;padding:10px 6px}
 .item .del{border:0;background:none;color:var(--muted);font-size:15px;padding:0 4px;opacity:.55}
 .item .del:hover{opacity:1;color:var(--red)}
 
@@ -217,7 +229,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.17";
+const APP_VERSION = "2026.08.17.2";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -527,7 +539,12 @@ function weekMeals(w){
 }
 const tickId = (w,k) => "k:"+w+":"+k;
 const hideId = (w,k) => "h:"+w+":"+k;
+const adjId  = (w,k) => "a:"+w+":"+k;
 const isOn = id => { const i=get(id); return !!(i && i.doc.on); };
+/* How much you've added on top of what the recipes ask for, this week. */
+const adjOf = (w,k) => { const i=get(adjId(w,k)); return i ? (Number(i.doc.extra)||0) : 0; };
+/* Sensible nudge per tap: 50g at a time, but one carrot at a time. */
+const stepFor = u => (u==="g"||u==="ml") ? 50 : 1;
 
 function buildList(w){
   const map = new Map();
@@ -546,7 +563,13 @@ function buildList(w){
   });
   const items = [...map.values()]
     .filter(e=>!isOn(hideId(w,e.key)))
-    .map(e=>({...e, sources:[...e.sources], done:isOn(tickId(w,e.key))}));
+    .map(e=>{
+      const extra = adjOf(w, e.key);
+      const base = e.qty;
+      // An adjustment can also give a quantity to something that had none.
+      const qty = extra ? Math.max(0, (base==null?0:base) + extra) : base;
+      return {...e, base, extra, qty, sources:[...e.sources], done:isOn(tickId(w,e.key))};
+    });
   items.sort((a,b)=>{
     const ai=AISLES.indexOf(a.aisle), bi=AISLES.indexOf(b.aisle);
     if(ai!==bi) return (ai<0?99:ai)-(bi<0?99:bi);
@@ -644,8 +667,9 @@ function renderRecipes(){
    in by hand — as one sorted set of rows. */
 function shoppingRows(w){
   const rows = buildList(w).map(it=>({
-      kind:"calc", key:it.key, item:itemLabel(it.item,it.qty,it.unit),
-      qty:it.qty, unit:it.unit, aisle:it.aisle, sources:it.sources, done:it.done }))
+      kind:"calc", key:it.key, item:itemLabel(it.item,it.qty,it.unit), raw:it.item,
+      qty:it.qty, base:it.base, extra:it.extra, unit:it.unit,
+      aisle:it.aisle, sources:it.sources, done:it.done }))
     .concat(extrasFor(w).map(x=>({
       kind:"extra", id:x.id, item:x.doc.text, qty:null, unit:"",
       aisle:x.doc.aisle||"Other", sources:[], done:!!x.doc.checked })));
@@ -682,16 +706,72 @@ function renderShopping(){
     if(r.aisle!==cur){ if(cur!==null) body+='</div>'; cur=r.aisle; body+='<h3>'+esc(cur)+'</h3><div class="card">'; }
     const tick = r.kind==="calc" ? 'data-tick="'+esc(r.key)+'"' : 'data-tickx="'+r.id+'"';
     const del  = r.kind==="calc" ? 'data-hide="'+esc(r.key)+'" title="Already have it"' : 'data-delx="'+r.id+'"';
+    // On calculated rows the quantity is tappable, so you can buy more than
+    // the recipes strictly need.
+    const qtyHTML = r.kind==="calc"
+      ? '<button class="qtybtn'+(r.extra?" tweaked":"")+'" data-adjust="'+esc(r.key)+'">'
+        + (r.qty!=null ? prettyQty(r.qty,r.unit,true) : "+") + '</button> '
+      : (r.qty!=null?'<span class="qty" style="font-weight:700">'+prettyQty(r.qty,r.unit,true)+'</span> ':"");
+    const note = (r.kind==="calc" && r.extra)
+      ? '<span class="src">'+(r.base?prettyQty(r.base,r.unit,true)+" for meals · ":"")
+        +(r.extra>0?"+":"−")+prettyQty(Math.abs(r.extra),r.unit,true)+' added</span>'
+      : (r.sources.length?'<span class="src">'+esc(r.sources.join(", "))+'</span>':"");
     body += '<div class="item'+(r.done?" done":"")+'">'
       + '<button class="cb" '+tick+'>'+(r.done?"✓":"")+'</button>'
-      + '<div class="txt">'
-      + (r.qty!=null?'<span class="qty" style="font-weight:700">'+prettyQty(r.qty,r.unit,true)+'</span> ':"")
-      + esc(r.item)
-      + (r.sources.length?'<span class="src">'+esc(r.sources.join(", "))+'</span>':"")
+      + '<div class="txt">' + qtyHTML + esc(r.item) + note
       + '</div><button class="del" '+del+'>×</button></div>';
   });
   if(cur!==null) body+='</div>';
   view.innerHTML = html + '<div class="aisle">'+body+'</div>' + addBtn;
+}
+
+/* Buy more (or less) of something than the week's meals strictly need —
+   an extra bag of carrots for snacking, say. Stored per week. */
+let adjKey = null;
+function openAdjust(key){
+  const r = shoppingRows(week).find(x=>x.kind==="calc" && x.key===key);
+  if(!r) return;
+  adjKey = key;
+  const unitTxt = r.unit || "";
+  let total = r.qty==null ? 0 : r.qty;
+  // Match what the list shows, so the number doesn't appear to change on tap.
+  if((r.unit==="g"||r.unit==="ml") && total>=25) total = Math.round(total/5)*5;
+  sheet("How much to buy",
+      '<p style="margin:0 0 4px;font-size:17px;font-weight:650">'+esc(r.raw)+'</p>'
+    + '<p class="small muted" style="margin:0">'
+    + (r.base ? 'Your meals this week need '+prettyQty(r.base,r.unit,true)+'.'
+              : 'Your meals don’t give this a quantity.')
+    + '</p>'
+    + '<div class="stepper">'
+    + '<button data-step="-1" aria-label="Less">−</button>'
+    + '<input type="number" id="adjVal" min="0" step="any" value="'+(Math.round(total*100)/100)+'">'
+    + '<button data-step="1" aria-label="More">+</button></div>'
+    + '<p class="small muted" style="text-align:center;margin:0 0 18px">'+(unitTxt?esc(unitTxt):"how many")+' to buy</p>'
+    + '<div class="row" style="gap:8px"><button class="btn primary" data-act="adjsave">Done</button>'
+    + (r.extra?'<button class="btn ghost" data-act="adjreset">Back to recipe amount</button>':"")
+    + '</div>');
+}
+function stepAdjust(dir){
+  const inp = document.getElementById("adjVal"); if(!inp) return;
+  const r = shoppingRows(week).find(x=>x.kind==="calc" && x.key===adjKey);
+  const step = stepFor(r ? r.unit : "");
+  const now = Number(inp.value)||0;
+  inp.value = Math.max(0, Math.round((now + dir*step)*100)/100);
+}
+function saveAdjust(){
+  const inp = document.getElementById("adjVal");
+  const r = shoppingRows(week).find(x=>x.kind==="calc" && x.key===adjKey);
+  if(!inp || !r){ closeModal(); return; }
+  const want = Math.max(0, Number(inp.value)||0);
+  const base = r.base==null ? 0 : r.base;
+  const extra = Math.round((want - base)*100)/100;
+  if(extra === 0) drop(adjId(week, adjKey));
+  else put("adj", adjId(week, adjKey), {week, key:adjKey, extra});
+  closeModal(); renderShopping();
+}
+function resetAdjust(){
+  drop(adjId(week, adjKey));
+  closeModal(); renderShopping(); toast("Back to the recipe amount");
 }
 
 /* Type as many things as you like, one per line or comma separated. */
@@ -731,9 +811,10 @@ function addBulkItems(){
    8. Sheets
    ========================================================= */
 function closeModal(){ modal.innerHTML=""; }
-function sheet(title, bodyHTML){
+function sheet(title, bodyHTML, headExtra){
   modal.innerHTML = '<div class="overlay" data-overlay><div class="sheet">'
-    + '<div class="sheethead"><h2>'+title+'</h2><button class="btn sm ghost" data-close>Close</button></div>'
+    + '<div class="sheethead"><h2>'+title+'</h2>'+(headExtra||"")
+    + '<button class="btn sm ghost" data-close>Close</button></div>'
     + '<div class="sheetbody">'+bodyHTML+'</div></div></div>';
 }
 
@@ -756,11 +837,15 @@ function openRecipe(id){
     + '</div>';
   if(fz.note) h += '<p class="small muted" style="margin:-8px 0 16px">'+esc(fz.note)+'</p>';
 
-  h += '<label class="f">Ingredients</label><div style="margin-bottom:20px">'
+  h += '<div class="row" style="align-items:baseline"><label class="f" style="flex:1">Ingredients</label>'
+    + '<button class="btn sm ghost" data-act="editrecipe" data-id="'+r.id+'" data-focus="ing">Edit</button></div>'
+    + '<div style="margin-bottom:20px">'
     + d.ingredients.map(i=>'<div class="ingline"><span style="min-width:78px;font-weight:700">'+prettyQty(i.qty,i.unit)+'</span><span>'+esc(i.item)+'</span></div>').join("")
     + '</div>';
 
-  h += '<label class="f">Method</label><ol class="method">'
+  h += '<div class="row" style="align-items:baseline"><label class="f" style="flex:1">Method</label>'
+    + '<button class="btn sm ghost" data-act="editrecipe" data-id="'+r.id+'" data-focus="step">Edit</button></div>'
+    + '<ol class="method">'
     + d.steps.map(s=>'<li>'+esc(s.text)+(s.mins?'<span class="t">'+s.mins+' min</span>':"")+'</li>').join("")
     + '</ol>';
 
@@ -793,9 +878,10 @@ function openRecipe(id){
   }
 
   h += '<div class="row wrap" style="margin-top:22px;gap:8px">'
-    + '<button class="btn" data-act="editrecipe" data-id="'+r.id+'">Edit</button>'
+    + '<button class="btn" data-act="editrecipe" data-id="'+r.id+'">Edit recipe</button>'
     + '<div class="sp"></div><button class="btn danger" data-act="delrecipe" data-id="'+r.id+'">Delete</button></div>';
-  sheet(esc(d.name), h);
+  sheet(esc(d.name), h,
+    '<button class="btn sm" data-act="editrecipe" data-id="'+r.id+'">Edit</button>');
 }
 
 let pickTarget=null;
@@ -823,7 +909,7 @@ function openPicker(dateISO, slot){
 }
 
 let draft=null, draftId=null;
-function openEditor(id){
+function openEditor(id, focus){
   if(id){ draftId=id; draft=JSON.parse(JSON.stringify(recipeById(id).doc)); }
   else{ draftId=null; draft={name:"",servings:2,prep:10,cook:20,time:30,batch:false,tags:[],
         ingredients:[{qty:"",unit:"",item:"",aisle:"Produce"}],steps:[{text:"",mins:""}]}; }
@@ -832,6 +918,12 @@ function openEditor(id){
   draft.nutrition= draft.nutrition|| {kcal:"",protein:"",carbs:"",fat:"",fibre:"",note:""};
   ["equipment","tips","serveWith"].forEach(k=>{ draft[k] = draft[k] || []; });
   drawEditor();
+  if(focus){                                   // jump straight to the bit they tapped
+    setTimeout(()=>{
+      const el = document.getElementById(focus==="step" ? "editStep" : "editIng");
+      if(el) el.scrollIntoView({block:"start"});
+    }, 60);
+  }
 }
 function drawEditor(){
   const r=draft;
@@ -847,7 +939,7 @@ function drawEditor(){
     + '<label class="row small" style="gap:8px;margin-bottom:8px"><input type="checkbox" data-d="batch" '+(r.batch?"checked":"")+' style="width:auto"> Good for batch cooking</label>'
     + '<label class="row small" style="gap:8px;margin-bottom:8px"><input type="checkbox" data-d="freezer.ok" '+(r.freezer.ok?"checked":"")+' style="width:auto"> Freezer friendly</label>'
     + '<input type="text" data-d="freezer.note" value="'+esc(r.freezer.note||"")+'" placeholder="Freezing note (optional)" style="margin-bottom:18px">'
-    + '<label class="f">Ingredients</label>';
+    + '<label class="f" id="editIng">Ingredients</label>';
   r.ingredients.forEach((i,n)=>{
     h += '<div class="fieldrow"><input type="number" step="any" placeholder="Qty" value="'+(i.qty==null?"":i.qty)+'" data-ing="'+n+'" data-k="qty" style="width:70px">'
       + '<select data-ing="'+n+'" data-k="unit" style="width:86px">'+unitOpts(i.unit)+'</select>'
@@ -855,7 +947,7 @@ function drawEditor(){
       + '<select data-ing="'+n+'" data-k="aisle" style="width:126px">'+aisleOpts(i.aisle)+'</select>'
       + '<button class="btn sm ghost" data-rmi="'+n+'">×</button></div>';
   });
-  h += '<button class="btn sm" data-addi style="margin:4px 0 18px">+ Ingredient</button><label class="f">Method</label>';
+  h += '<button class="btn sm" data-addi style="margin:4px 0 18px">+ Ingredient</button><label class="f" id="editStep">Method</label>';
   r.steps.forEach((s,n)=>{
     h += '<div class="fieldrow"><div class="stepnum">'+(n+1)+'</div>'
       + '<textarea rows="2" placeholder="What to do" data-step="'+n+'" data-k="text">'+esc(s.text)+'</textarea>'
@@ -1093,12 +1185,15 @@ function openHelp(){
     <p>Units are converted before merging, so a tablespoon in one recipe and a teaspoon in another add up properly, and grams roll into kilograms once they pass a thousand. Anything you can only buy whole — tins, packs, avocados — rounds up, because half a tin isn't a thing.</p>
     <p>Under each line it says which meals it's for. That's how you tell whether the 8 cloves of garlic are worth buying two bulbs for.</p>
     <p>Tap the circle to tick something off. Tap the small <b>×</b> to remove a line entirely — that's for things you've already got in. <b>Reset ticks</b> puts everything back, and <b>Copy as text</b> gives you the whole list to paste into a message.</p>
+    <p><b>Buying more than the recipes need.</b> Tap the <u>quantity</u> on any line and you can set what you actually want to buy — an extra bag of carrots for snacking, say. The line then reads in orange and shows the split, like "1 for meals · +3 added". Grams and millilitres step in fifties, everything else one at a time, and you can type an exact number instead. <b>Back to recipe amount</b> undoes it. Adjustments belong to that week only, so they don't follow you around.</p>
+    <p class="q">Lines with no quantity, like fresh herbs, show a <b>+</b> instead — tap it to give them one.</p>
     <p class="q">Ticks are per week, so last week's shopping doesn't affect this week's.</p>
   </div>
 
   <div class="helpsec">
     <h3>Adding and editing recipes</h3>
-    <p>Under <b>Recipes</b>, tap <b>+ New</b>, or open any recipe and tap <b>Edit</b>. The sample recipes are there to be pulled apart — change them to how you actually cook.</p>
+    <p>Open any recipe and there's an <b>Edit</b> button at the top, next to Close. There are also Edit links beside the <b>Ingredients</b> and <b>Method</b> headings, which open the editor already scrolled to that part. <b>+ New</b> on the Recipes tab creates one from scratch.</p>
+    <p>In the editor, every ingredient and every step is its own row. <b>+ Ingredient</b> and <b>+ Step</b> add more; the <b>×</b> at the end of a row removes it. Change these freely — they're your recipes now, and edits reach the other phone within seconds.</p>
     <p>For each ingredient give a quantity, a unit and an aisle. The aisle is what groups your shopping list, so getting it roughly right is worth the two seconds. Leave the unit blank for things you count, like onions.</p>
     <p>Each method step can have a number of minutes beside it. Those aren't used yet — they're waiting for the Start Cooking feature — but filling them in now means it'll work the day it arrives.</p>
     <p class="q">Deleting a recipe also removes any planned meals using it, so check the week first.</p>
@@ -1199,7 +1294,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step]");
   if(!t) return;
   if(t.hasAttribute("data-overlay") && e.target===t){ closeModal(); return; }
   if(t.hasAttribute("data-close")){ closeModal(); return; }
@@ -1219,6 +1314,8 @@ document.addEventListener("click", e=>{
                             servings:serv, order:Date.now(), frozen:frozen});
     closeModal(); render(); return;
   }
+  if(t.dataset.adjust){ openAdjust(t.dataset.adjust); return; }
+  if(t.dataset.step){ stepAdjust(Number(t.dataset.step)); return; }
   if(t.dataset.tick){ const id=tickId(week,t.dataset.tick); put("tick", id, {week, key:t.dataset.tick, on:!isOn(id)}); renderShopping(); return; }
   if(t.dataset.hide){ put("hide", hideId(week,t.dataset.hide), {week, key:t.dataset.hide, on:true}); renderShopping(); return; }
   if(t.dataset.tickx){ const x=get(t.dataset.tickx); if(x) put("extra", x.id, Object.assign({},x.doc,{checked:!x.doc.checked})); renderShopping(); return; }
@@ -1230,7 +1327,7 @@ document.addEventListener("click", e=>{
 
   const act=t.dataset.act; if(!act) return;
   if(act==="newrecipe") openEditor(null);
-  else if(act==="editrecipe") openEditor(t.dataset.id);
+  else if(act==="editrecipe") openEditor(t.dataset.id, t.dataset.focus);
   else if(act==="saverecipe") saveRecipe();
   else if(act==="delrecipe"){
     if(confirm("Delete this recipe? Any planned meals using it will disappear.")){
@@ -1270,6 +1367,8 @@ document.addEventListener("click", e=>{
       setTimeout(()=>location.reload(true), 700);
     })();
   }
+  else if(act==="adjsave"){ saveAdjust(); }
+  else if(act==="adjreset"){ resetAdjust(); }
   else if(act==="additems"){ openAddItems(); }
   else if(act==="addbulk"){ addBulkItems(); }
   else if(act==="rotation"){ closeMenu(); openRotation(); }
