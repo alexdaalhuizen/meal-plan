@@ -201,6 +201,44 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 .step .b{flex:1}
 .note{background:var(--accent-soft);border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.5}
 
+/* ---------- cook along ---------- */
+.cookwrap{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.cookbar{display:flex;align-items:center;gap:10px;padding:12px 16px 10px;border-bottom:1px solid var(--line)}
+.cookbar .ctitle{flex:1;font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cookbar .cstep{font-size:13px;color:var(--muted);font-weight:600;white-space:nowrap}
+.cprog{height:3px;background:var(--line)}
+.cprog i{display:block;height:100%;background:var(--accent);transition:width .3s}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 16px 4px}
+.chip{display:inline-flex;align-items:center;gap:8px;flex:none;background:var(--card);
+  border:1px solid var(--line);border-radius:99px;padding:7px 8px 7px 13px;font-size:13px;max-width:74vw}
+.chip.ready{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.chip .cl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.chip .cd{font-variant-numeric:tabular-nums;font-weight:800}
+.chip .cx{border:0;background:none;color:inherit;opacity:.55;font-size:15px;padding:0 3px}
+.chip .cx:hover{opacity:1}
+.cookmain{flex:1;overflow:auto;padding:18px 20px 8px;display:flex;flex-direction:column}
+.cnum{width:34px;height:34px;border-radius:99px;background:var(--accent);color:#fff;font-weight:800;
+  font-size:15px;display:grid;place-items:center;margin-bottom:14px;flex:none}
+.ctext{font-size:23px;line-height:1.42;font-weight:600;margin:0 0 22px;letter-spacing:-.01em}
+.ctimer{margin-top:auto;padding-bottom:6px}
+.bigbtn{width:100%;padding:17px;border-radius:15px;font-size:17px;font-weight:700;
+  border:1px solid var(--accent);background:var(--accent);color:#fff}
+.bigbtn.ghost{background:var(--card);color:var(--accent)}
+.running{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);
+  border-radius:15px;padding:14px 16px}
+.running .cd{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.running .rl{flex:1;font-size:13px;color:var(--muted);font-weight:600}
+.cooknav{display:flex;gap:10px;padding:12px 16px 16px;border-top:1px solid var(--line)}
+.cooknav .btn{flex:1;padding:16px;font-size:16px;border-radius:14px}
+.cooknav .btn.primary{flex:2}
+.cookalert{background:var(--green);color:#fff;padding:13px 16px;display:flex;align-items:center;gap:12px}
+.cookalert .at{flex:1;font-weight:650;font-size:15px;line-height:1.35}
+.cookalert button{border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;
+  border-radius:9px;padding:7px 12px;font-weight:700;font-size:13px}
+.cdone{text-align:center;padding:30px 10px}
+.cdone .big{font-size:22px;font-weight:700;margin-bottom:8px}
+
 /* ---------- welcome cards ---------- */
 .wcwrap{position:fixed;inset:0;z-index:150;background:rgba(20,15,10,.55);display:flex;align-items:flex-end;justify-content:center}
 @media(min-width:640px){.wcwrap{align-items:center;padding:24px}}
@@ -252,7 +290,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.17.4";
+const APP_VERSION = "2026.08.18";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -900,6 +938,8 @@ function openRecipe(id){
       + '<p class="small muted" style="margin:0">'+esc(d.equipment.join(" · "))+'</p>';
   }
 
+  h = '<button class="bigbtn" data-cookstart="'+r.id+'" style="margin-bottom:18px">▶  Start cooking</button>' + h;
+
   h += '<div class="row wrap" style="margin-top:22px;gap:8px">'
     + '<button class="btn" data-act="editrecipe" data-id="'+r.id+'">Edit recipe</button>'
     + '<div class="sp"></div><button class="btn danger" data-act="delrecipe" data-id="'+r.id+'">Delete</button></div>';
@@ -1194,6 +1234,14 @@ function openHelp(){
   </div>
 
   <div class="helpsec">
+    <h3>Cooking along</h3>
+    <p>Open a recipe and tap <b>Start cooking</b>. You get one step at a time in large type, with <b>Back</b> and <b>Next</b>, and the screen is held awake for the whole session so it doesn't go dark with your hands covered in flour.</p>
+    <p>Where a step has a time on it, there's a <b>Start timer</b> button. The important bit: once started, a timer <b>keeps running while you move on</b>. Put the potatoes in, tap Next, and carry on prepping — the countdown sits in a chip along the top and you can have several going at once. <b>+1 min</b> extends one, <b>Stop</b> cancels it.</p>
+    <p>It stays quiet while you work. When a timer finishes you get a chime, a green banner, and it reads out the step that's just ended so you know which pan. It won't move you on by itself — tap <b>Got it</b> and carry on where you were.</p>
+    <p class="q">One limitation worth knowing: this only works with the app open and the screen on. A web app can't wake itself up, so if you lock the phone or switch apps the timers stop. Prop it up somewhere in the kitchen, ideally on a charger. If you close it by accident, reopening within the timer's lifetime picks the session straight back up.</p>
+  </div>
+
+  <div class="helpsec">
     <h3>Batch cooking and the freezer</h3>
     <p>Each day has a third slot, <b>Batch cook</b>, which only appears once you've put something in it — otherwise there's a faint <i>+ Batch cook</i> link at the bottom of the day. Use it for the big weekend cooks, and set servings to the <b>whole batch</b>, including the portions destined for the freezer. That way the shopping list buys enough.</p>
     <p>When you eat one of those portions weeks later, add the meal as normal but tick <b>❄ From the freezer</b> in the picker. It shows on the plan with a snowflake and contributes <b>nothing</b> to that week's shopping list, because you already bought it.</p>
@@ -1320,8 +1368,18 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired]");
   if(!t) return;
+
+  // ---- cook along ----
+  if(t.dataset.cookstart!==undefined && t.hasAttribute("data-cookstart")){ startCooking(t.dataset.cookstart); return; }
+  if(t.hasAttribute("data-cookexit")){ stopCooking(); return; }
+  if(t.hasAttribute("data-cooknext")){ cookMove(1); return; }
+  if(t.hasAttribute("data-cookprev")){ cookMove(-1); return; }
+  if(t.dataset.starttimer!==undefined && t.hasAttribute("data-starttimer")){ primeAudio(); startTimer(Number(t.dataset.starttimer)); return; }
+  if(t.dataset.tplus){ addMinute(t.dataset.tplus); return; }
+  if(t.dataset.tcancel){ cancelTimer(t.dataset.tcancel); return; }
+  if(t.hasAttribute("data-clearfired")){ cook.timers = cook.timers.filter(x=>!x.fired); saveCook(); drawCook(); return; }
   if(t.hasAttribute("data-overlay") && e.target===t){ closeModal(); return; }
   if(t.hasAttribute("data-close")){ closeModal(); return; }
 
@@ -2218,6 +2276,211 @@ function ensureRecipes(){
 }
 
 /* =========================================================
+   9b. Cook along — step by step, with timers that keep running
+       in the background while you get on with the next thing.
+   ========================================================= */
+const COOK_KEY = "mealplan.cook";
+let cook = null;          // {recipeId, i, timers:[{tid, step, label, endsAt, mins, fired}]}
+let cookTick = null, wakeLock = null, actx = null;
+
+function saveCook(){ lsSet(COOK_KEY, cook ? JSON.stringify(cook) : ""); }
+
+/* iPhones only allow sound and speech that started from a tap, so we warm
+   both up on the Start cooking press and keep them alive for the session. */
+function primeAudio(){
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if(actx.state === "suspended") actx.resume();
+  }catch(e){}
+  try{
+    if(window.speechSynthesis){
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0; speechSynthesis.speak(u);
+    }
+  }catch(e){}
+}
+function chime(){
+  if(!actx) return;
+  const t0 = actx.currentTime;
+  [880, 1318.5].forEach((f,i)=>{
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = "sine"; o.frequency.value = f;
+    const s = t0 + i*0.2;
+    g.gain.setValueAtTime(0.0001, s);
+    g.gain.exponentialRampToValueAtTime(0.4, s+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, s+0.55);
+    o.connect(g); g.connect(actx.destination);
+    o.start(s); o.stop(s+0.6);
+  });
+}
+function say(text){
+  try{
+    if(!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.95; u.lang = "en-GB";
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+async function keepAwake(){
+  try{ if(navigator.wakeLock && !wakeLock) wakeLock = await navigator.wakeLock.request("screen"); }
+  catch(e){ /* refused, or unsupported — the session still works */ }
+}
+function releaseAwake(){ try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){} }
+document.addEventListener("visibilitychange", ()=>{
+  if(cook && document.visibilityState === "visible"){ wakeLock = null; keepAwake(); checkTimers(); }
+});
+
+const shortLabel = s => { const w = String(s).split(/\s+/); return w.slice(0,4).join(" ") + (w.length>4?"…":""); };
+const mmss = ms => {
+  const t = Math.max(0, Math.round(ms/1000));
+  return Math.floor(t/60) + ":" + String(t%60).padStart(2,"0");
+};
+
+function startCooking(id){
+  const r = recipeById(id); if(!r || !r.doc.steps.length) return;
+  primeAudio(); keepAwake();
+  cook = { recipeId:id, i:0, timers:[] };
+  saveCook(); closeModal(); drawCook();
+  clearInterval(cookTick);
+  cookTick = setInterval(tickCook, 500);
+}
+function stopCooking(){
+  clearInterval(cookTick); cookTick = null;
+  releaseAwake();
+  try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(e){}
+  cook = null; saveCook();
+  const el = document.getElementById("cookwrap"); if(el) el.remove();
+  render();
+}
+function cookRecipe(){ return cook ? recipeById(cook.recipeId) : null; }
+
+function startTimer(stepIndex){
+  const r = cookRecipe(); if(!r) return;
+  const s = r.doc.steps[stepIndex]; if(!s || !s.mins) return;
+  if(cook.timers.some(t=>t.step===stepIndex && !t.fired)) return;
+  cook.timers.push({ tid:uid("t-"), step:stepIndex, label:shortLabel(s.text),
+                     endsAt: Date.now() + Number(s.mins)*60000, mins:Number(s.mins), fired:false });
+  saveCook(); drawCook();
+}
+function addMinute(tid){
+  const t = cook.timers.find(x=>x.tid===tid); if(!t) return;
+  t.endsAt += 60000; t.fired = false;
+  saveCook(); drawCook();
+}
+function cancelTimer(tid){
+  cook.timers = cook.timers.filter(t=>t.tid!==tid);
+  saveCook(); drawCook();
+}
+/* Fires anything that has come due — including while the app was asleep. */
+function checkTimers(){
+  if(!cook) return;
+  const now = Date.now();
+  const due = cook.timers.filter(t=>!t.fired && t.endsAt <= now);
+  if(!due.length) return;
+  due.forEach(t=>{ t.fired = true; });
+  saveCook();
+  const r = cookRecipe();
+  chime();
+  const texts = due.map(t=>{
+    const s = r && r.doc.steps[t.step];
+    return s ? s.text : t.label;
+  });
+  setTimeout(()=>say("Timer finished. " + texts.join(". Also. ")), 750);
+  drawCook();
+}
+function tickCook(){
+  if(!cook) return;
+  checkTimers();
+  const now = Date.now();
+  document.querySelectorAll("[data-endsat]").forEach(el=>{
+    el.textContent = mmss(Number(el.dataset.endsat) - now);
+  });
+}
+
+function drawCook(){
+  if(!cook) return;
+  const r = cookRecipe();
+  if(!r){ stopCooking(); return; }
+  const steps = r.doc.steps, i = cook.i, s = steps[i];
+  const now = Date.now();
+  const done = i >= steps.length;
+
+  const rung = cook.timers.filter(t=>!t.fired)
+    .map(t=>'<span class="chip"><span class="cl">'+esc(t.label)+'</span>'
+      + '<span class="cd" data-endsat="'+t.endsAt+'">'+mmss(t.endsAt-now)+'</span>'
+      + '<button class="cx" data-tcancel="'+t.tid+'" aria-label="Cancel">×</button></span>').join("");
+  const rang = cook.timers.filter(t=>t.fired)
+    .map(t=>'<span class="chip ready"><span class="cl">'+esc(t.label)+'</span><span class="cd">done</span>'
+      + '<button class="cx" data-tcancel="'+t.tid+'" aria-label="Clear">×</button></span>').join("");
+
+  const fired = cook.timers.filter(t=>t.fired);
+  const alert = fired.length
+    ? '<div class="cookalert"><div class="at">'
+      + esc(fired.map(t=>(steps[t.step]||{}).text || t.label).join(" · "))
+      + '</div><button data-clearfired>Got it</button></div>'
+    : "";
+
+  let mainHTML;
+  if(done){
+    mainHTML = '<div class="cdone"><div class="big">That\'s everything.</div>'
+      + '<p class="muted">Enjoy it.</p>'
+      + '<button class="bigbtn" data-cookexit style="margin-top:18px">Finish</button></div>';
+  }else{
+    const live = cook.timers.find(t=>t.step===i && !t.fired);
+    let timerHTML = "";
+    if(s.mins && live){
+      timerHTML = '<div class="running"><span class="cd" data-endsat="'+live.endsAt+'">'+mmss(live.endsAt-now)+'</span>'
+        + '<span class="rl">of '+s.mins+' min</span>'
+        + '<button class="btn sm" data-tplus="'+live.tid+'">+1 min</button>'
+        + '<button class="btn sm ghost" data-tcancel="'+live.tid+'">Stop</button></div>';
+    }else if(s.mins){
+      timerHTML = '<button class="bigbtn ghost" data-starttimer="'+i+'">Start '+s.mins+' min timer</button>';
+    }
+    mainHTML = '<div class="cnum">'+(i+1)+'</div><p class="ctext">'+esc(s.text)+'</p>'
+      + '<div class="ctimer">'+timerHTML+'</div>';
+  }
+
+  const html = '<div class="cookwrap" id="cookwrap">'
+    + '<div class="cookbar"><button class="btn sm ghost" data-cookexit>Exit</button>'
+    + '<div class="ctitle">'+esc(r.doc.name)+'</div>'
+    + '<div class="cstep">'+(done?"done":(i+1)+" / "+steps.length)+'</div></div>'
+    + '<div class="cprog"><i style="width:'+Math.round((Math.min(i,steps.length)/steps.length)*100)+'%"></i></div>'
+    + alert
+    + ((rung||rang) ? '<div class="chips">'+rung+rang+'</div>' : "")
+    + '<div class="cookmain">'+mainHTML+'</div>'
+    + (done ? "" : '<div class="cooknav">'
+       + '<button class="btn" data-cookprev '+(i===0?"disabled":"")+'>Back</button>'
+       + '<button class="btn primary" data-cooknext>'+(i===steps.length-1?"Finish":"Next")+'</button></div>')
+    + '</div>';
+
+  const old = document.getElementById("cookwrap");
+  if(old) old.outerHTML = html; else document.body.insertAdjacentHTML("beforeend", html);
+}
+
+function cookMove(d){
+  if(!cook) return;
+  const r = cookRecipe(); if(!r) return;
+  const next = cook.i + d;
+  if(next < 0) return;
+  cook.i = Math.min(next, r.doc.steps.length);
+  saveCook(); drawCook();
+}
+function restoreCook(){
+  let saved = null;
+  try{ saved = JSON.parse(lsGet(COOK_KEY) || "null"); }catch(e){}
+  if(!saved || !saved.recipeId || !recipeById(saved.recipeId)) { cook = null; saveCook(); return; }
+  // Only worth resuming if something is still counting down.
+  const live = (saved.timers||[]).some(t=>!t.fired && t.endsAt > Date.now());
+  if(!live){ cook = null; saveCook(); return; }
+  cook = saved;
+  drawCook();
+  clearInterval(cookTick);
+  cookTick = setInterval(tickCook, 500);
+  keepAwake();
+}
+
+/* =========================================================
    10b. The three-week rotation
    [day 0=Mon, slot, recipe, servings, from the freezer?]
    ========================================================= */
@@ -2321,6 +2584,7 @@ if(connected()){
 render();
 if(!storageOK) setTimeout(()=>toast("This browser won't let the app save — try a normal (non-private) window"), 800);
 if(!lsGet(SEEN_KEY)) setTimeout(openWelcome, invited ? 1400 : 350);
+setTimeout(restoreCook, 500);   // pick up a session that was mid-timer
 
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
