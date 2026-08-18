@@ -252,7 +252,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.17.3";
+const APP_VERSION = "2026.08.17.4";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -2136,6 +2136,62 @@ const RECIPES = [
 ];
 /* Runs once per household, not once per device — the version lives in the
    shared store, so the second phone doesn't repeat the work. */
+/* Single-recipe updates. These replace just the one recipe rather than the
+   whole book, so nothing else you've edited gets trampled. */
+const RECIPE_PATCHES = [
+ {v:1, id:"r-tuscan-chicken", doc:{
+  name:"Creamy Tuscan chicken",servings:2,prep:15,cook:50,time:60,batch:false,
+  freezer:{ok:false,note:"The creamy sauce can separate when frozen and reheated."},
+  tags:["chicken","one plate"],
+  ingredients:[
+   I(300,"g","chicken breast","Meat & Fish"),
+   I(500,"g","baby potatoes","Produce"),I(200,"g","Tenderstem broccoli","Produce"),
+   I(0.5,"","onion","Produce"),I(2,"clove","garlic","Produce"),
+   I(100,"g","cherry tomatoes","Produce"),I(40,"g","sun-dried tomatoes","Tins & Jars"),
+   I(75,"g","baby spinach","Produce"),I(null,"","basil","Produce"),I(0.5,"","lemon","Produce"),
+   I(100,"ml","chicken stock","Dry Goods"),I(2,"tsp","Italian mixed herbs","Herbs & Spices"),
+   I(0.5,"tsp","garlic granules","Herbs & Spices"),I(2,"tsp","olive oil","Dry Goods"),
+   I(50,"g","light cream cheese","Dairy & Eggs"),I(50,"ml","semi-skimmed milk","Dairy & Eggs"),
+   I(25,"g","Parmesan","Dairy & Eggs")],
+  steps:[
+   St("Heat the oven to 220°C fan."),
+   St("Cut the baby potatoes into halves or quarters, depending on their size."),
+   St("Put them into a saucepan of cold salted water, bring to the boil and parboil.",5),
+   St("Drain thoroughly, return them to the pan and shake gently to rough up the edges."),
+   St("Toss with 1 tsp olive oil, Italian herbs, garlic granules, salt and pepper."),
+   St("Spread onto a baking tray in a single layer and put them in the oven. Turn them after about 25 minutes.",48),
+   St("While the potatoes roast: slice the chicken breasts horizontally into thinner pieces and season with black pepper and a little Italian herbs."),
+   St("Slice the onion, finely chop the garlic, halve the cherry tomatoes and chop the sun-dried tomatoes."),
+   St("Grate the Parmesan. Tear the large basil leaves into two or three pieces, leaving the small ones whole."),
+   St("Wash the Tenderstem broccoli and trim any woody ends."),
+   St("About 25 minutes in, heat a large frying pan over a medium-high heat with 1 tsp olive oil."),
+   St("Add the chicken and cook on the first side.",3),
+   St("Turn and cook the second side, then lift onto a plate. It doesn't need to be cooked through yet.",3),
+   St("In the same pan, cook the sliced onion, stirring now and then, until softened.",3),
+   St("Add the garlic and cook until fragrant.",1),
+   St("Add the cherry tomatoes and sun-dried tomatoes and cook until they begin to soften.",2),
+   St("Pour in the chicken stock and stir in the cream cheese until smooth."),
+   St("Add the milk, the Parmesan, the Italian herbs and black pepper."),
+   St("Stir through the spinach until just wilted.",2),
+   St("Return the chicken and any juices from the plate, and simmer gently until cooked through — 74°C in the thickest part.",5),
+   St("Turn the heat right down. Stir through the torn basil, add a small squeeze of lemon if you like, then taste and season. If the sauce has thickened too much, loosen it with a splash of milk or stock."),
+   St("About 7 minutes before the potatoes are due out, bring a saucepan of well-salted water to a rolling boil."),
+   St("Add the Tenderstem broccoli and boil — 4 minutes if you like it with a bit of bite, 5 if you prefer it softer.",4),
+   St("Drain the broccoli thoroughly."),
+   St("Check the potatoes are golden and crisp outside and soft in the middle."),
+   St("Divide between two plates — roast potatoes, creamy Tuscan chicken and broccoli — spooning the sauce over the chicken and letting a little run onto the potatoes.")],
+  equipment:["Large frying pan","Medium saucepan","Baking tray","Colander","Measuring jug","Grater","Tongs"],
+  tips:["Timeline: potatoes in at 0:00, prep done by 0:20, chicken on at 0:25, sauce finishing around 0:35, broccoli on at 0:43, everything ready between 0:45 and 0:50.",
+   "Slicing the breasts horizontally helps them cook evenly in the time you've got.",
+   "Don't let the sauce boil hard once the cream cheese is in.",
+   "Sun-dried tomatoes are salty — taste the sauce before adding more salt.",
+   "Roughing up the parboiled edges is what gives you crisp potatoes."],
+  storage:{fridge:"Up to 2 days in an airtight container.",freezer:"Not recommended."},
+  serveWith:["A simple green salad, if you want something extra"],
+  nutrition:{kcal:690,protein:56,carbs:58,fat:23,fibre:10,
+             note:"Estimated, now including the roast potatoes and broccoli"}}}
+];
+
 /* Returns true if it actually wrote something, so the caller knows to redraw. */
 function ensureRecipes(){
   let wrote = false;
@@ -2143,11 +2199,22 @@ function ensureRecipes(){
      devices happen to sync in. Dropping an already-dropped id is a no-op. */
   RETIRED.forEach(id=>{ const it = S.items[id]; if(it && !it.deleted){ drop(id); wrote = true; } });
   const v = get("setting:recipes");
-  if(v && (v.doc.v||0) >= RECIPE_SET) return wrote;
-  RECIPES.forEach(([id,doc])=>put("recipe", id, doc));
-  put("setting","setting:recipes",{v:RECIPE_SET});
-  S.seeded = true; saveLocal();
-  return true;
+  if(!v || (v.doc.v||0) < RECIPE_SET){
+    RECIPES.forEach(([id,doc])=>put("recipe", id, doc));
+    put("setting","setting:recipes",{v:RECIPE_SET});
+    S.seeded = true; wrote = true;
+  }
+  // Then any single-recipe updates that haven't been applied yet.
+  const pv = get("setting:recipepatch");
+  const done = (pv && Number(pv.doc.v)) || 0;
+  let highest = done;
+  RECIPE_PATCHES.forEach(p=>{
+    if(p.v > done && get(p.id)){ put("recipe", p.id, p.doc); wrote = true; }
+    if(p.v > highest) highest = p.v;
+  });
+  if(highest > done) put("setting","setting:recipepatch",{v:highest});
+  if(wrote) saveLocal();
+  return wrote;
 }
 
 /* =========================================================
