@@ -162,6 +162,29 @@ label.f{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin
 .sheethead h2{font-size:17px;flex:1}
 .sheetbody{padding:16px}
 .fieldrow{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}
+
+/* Editor rows give the name a full line of its own — on a phone a flat row
+   squeezes it down to a couple of characters. */
+.ingedit{
+  display:grid; grid-template-columns:78px 92px 1fr 32px; gap:8px; align-items:center;
+  padding:10px; margin-bottom:8px; border:1px solid var(--line);
+  border-radius:11px; background:var(--bg);
+}
+.ingedit .iname { grid-column:1 / span 3; grid-row:1; font-weight:600 }
+.ingedit .rmi   { grid-column:4; grid-row:1 }
+.ingedit .iqty  { grid-column:1; grid-row:2 }
+.ingedit .iunit { grid-column:2; grid-row:2 }
+.ingedit .iaisle{ grid-column:3 / span 2; grid-row:2; font-size:13px; color:var(--muted) }
+.stepedit{
+  display:grid; grid-template-columns:26px 1fr 32px; gap:8px; align-items:start;
+  padding:10px; margin-bottom:8px; border:1px solid var(--line);
+  border-radius:11px; background:var(--bg);
+}
+.stepedit .snum { grid-column:1; grid-row:1; margin-top:6px }
+.stepedit .stext{ grid-column:2; grid-row:1 }
+.stepedit .rms  { grid-column:3; grid-row:1 }
+.stepedit .smins{ grid-column:2; grid-row:2; width:130px; font-size:13px }
+.ingedit input, .ingedit select, .stepedit input, .stepedit textarea{ background:var(--card) }
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .stepnum{width:24px;height:24px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:800;display:grid;place-items:center;flex:none;margin-top:8px}
 .ingline{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14.5px}
@@ -229,7 +252,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.17.2";
+const APP_VERSION = "2026.08.17.3";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -941,18 +964,21 @@ function drawEditor(){
     + '<input type="text" data-d="freezer.note" value="'+esc(r.freezer.note||"")+'" placeholder="Freezing note (optional)" style="margin-bottom:18px">'
     + '<label class="f" id="editIng">Ingredients</label>';
   r.ingredients.forEach((i,n)=>{
-    h += '<div class="fieldrow"><input type="number" step="any" placeholder="Qty" value="'+(i.qty==null?"":i.qty)+'" data-ing="'+n+'" data-k="qty" style="width:70px">'
-      + '<select data-ing="'+n+'" data-k="unit" style="width:86px">'+unitOpts(i.unit)+'</select>'
-      + '<input type="text" placeholder="Ingredient" value="'+esc(i.item)+'" data-ing="'+n+'" data-k="item">'
-      + '<select data-ing="'+n+'" data-k="aisle" style="width:126px">'+aisleOpts(i.aisle)+'</select>'
-      + '<button class="btn sm ghost" data-rmi="'+n+'">×</button></div>';
+    h += '<div class="ingedit">'
+      + '<input class="iname" type="text" placeholder="Ingredient" value="'+esc(i.item)+'" data-ing="'+n+'" data-k="item">'
+      + '<button class="btn sm ghost rmi" data-rmi="'+n+'" aria-label="Remove">×</button>'
+      + '<input class="iqty" type="number" step="any" placeholder="Qty" value="'+(i.qty==null?"":i.qty)+'" data-ing="'+n+'" data-k="qty">'
+      + '<select class="iunit" data-ing="'+n+'" data-k="unit">'+unitOpts(i.unit)+'</select>'
+      + '<select class="iaisle" data-ing="'+n+'" data-k="aisle">'+aisleOpts(i.aisle)+'</select>'
+      + '</div>';
   });
   h += '<button class="btn sm" data-addi style="margin:4px 0 18px">+ Ingredient</button><label class="f" id="editStep">Method</label>';
   r.steps.forEach((s,n)=>{
-    h += '<div class="fieldrow"><div class="stepnum">'+(n+1)+'</div>'
-      + '<textarea rows="2" placeholder="What to do" data-step="'+n+'" data-k="text">'+esc(s.text)+'</textarea>'
-      + '<input type="number" min="0" placeholder="min" value="'+(s.mins||"")+'" data-step="'+n+'" data-k="mins" style="width:66px">'
-      + '<button class="btn sm ghost" data-rms="'+n+'">×</button></div>';
+    h += '<div class="stepedit"><div class="stepnum snum">'+(n+1)+'</div>'
+      + '<textarea class="stext" rows="3" placeholder="What to do" data-step="'+n+'" data-k="text">'+esc(s.text)+'</textarea>'
+      + '<button class="btn sm ghost rms" data-rms="'+n+'" aria-label="Remove">×</button>'
+      + '<input class="smins" type="number" min="0" placeholder="timer (min)" value="'+(s.mins||"")+'" data-step="'+n+'" data-k="mins">'
+      + '</div>';
   });
   h += '<button class="btn sm" data-adds style="margin:4px 0 20px">+ Step</button>';
 
