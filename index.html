@@ -290,7 +290,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.18";
+const APP_VERSION = "2026.08.18.2";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -1237,7 +1237,7 @@ function openHelp(){
     <h3>Cooking along</h3>
     <p>Open a recipe and tap <b>Start cooking</b>. You get one step at a time in large type, with <b>Back</b> and <b>Next</b>, and the screen is held awake for the whole session so it doesn't go dark with your hands covered in flour.</p>
     <p>Where a step has a time on it, there's a <b>Start timer</b> button. The important bit: once started, a timer <b>keeps running while you move on</b>. Put the potatoes in, tap Next, and carry on prepping — the countdown sits in a chip along the top and you can have several going at once. <b>+1 min</b> extends one, <b>Stop</b> cancels it.</p>
-    <p>It stays quiet while you work. When a timer finishes you get a chime, a green banner, and it reads out the step that's just ended so you know which pan. It won't move you on by itself — tap <b>Got it</b> and carry on where you were.</p>
+    <p>It stays quiet while you work. When a timer finishes you get a chime and a green banner, and it speaks. If you're standing at that pan it tells you <b>what to do next</b> — "Next. Turn and cook the second side." If it's something you left running while you moved on, the next step in the list has nothing to do with it, so it names the timer instead — "Your 48 minute timer has finished" — and offers a <b>Go there</b> button if you want to jump to it. Either way it won't move you on by itself; tap <b>Got it</b> and carry on where you were.</p>
     <p class="q">One limitation worth knowing: this only works with the app open and the screen on. A web app can't wake itself up, so if you lock the phone or switch apps the timers stop. Prop it up somewhere in the kitchen, ideally on a charger. If you close it by accident, reopening within the timer's lifetime picks the session straight back up.</p>
   </div>
 
@@ -1368,7 +1368,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep]");
   if(!t) return;
 
   // ---- cook along ----
@@ -1380,6 +1380,11 @@ document.addEventListener("click", e=>{
   if(t.dataset.tplus){ addMinute(t.dataset.tplus); return; }
   if(t.dataset.tcancel){ cancelTimer(t.dataset.tcancel); return; }
   if(t.hasAttribute("data-clearfired")){ cook.timers = cook.timers.filter(x=>!x.fired); saveCook(); drawCook(); return; }
+  if(t.dataset.gostep!==undefined && t.hasAttribute("data-gostep")){
+    cook.i = Number(t.dataset.gostep);
+    cook.timers = cook.timers.filter(x=>!x.fired);
+    saveCook(); drawCook(); return;
+  }
   if(t.hasAttribute("data-overlay") && e.target===t){ closeModal(); return; }
   if(t.hasAttribute("data-close")){ closeModal(); return; }
 
@@ -2372,21 +2377,41 @@ function cancelTimer(tid){
   cook.timers = cook.timers.filter(t=>t.tid!==tid);
   saveCook(); drawCook();
 }
-/* Fires anything that has come due — including while the app was asleep. */
+/* Fires anything that has come due — including while the app was asleep.
+   What it says depends on where you are. If the timer belongs to the step
+   you're standing on, the useful thing to hear is what to do next. If it's
+   a pan you left running while you moved on, the next step in the list has
+   nothing to do with it, so it names the timer instead and offers to jump. */
 function checkTimers(){
   if(!cook) return;
   const now = Date.now();
   const due = cook.timers.filter(t=>!t.fired && t.endsAt <= now);
   if(!due.length) return;
-  due.forEach(t=>{ t.fired = true; });
-  saveCook();
   const r = cookRecipe();
-  chime();
-  const texts = due.map(t=>{
-    const s = r && r.doc.steps[t.step];
-    return s ? s.text : t.label;
+  const steps = (r && r.doc.steps) || [];
+
+  due.forEach(t=>{
+    t.fired = true;
+    const nextIdx = t.step + 1;
+    const onThisStep = t.step >= cook.i;             // you're standing at the pan
+    if(onThisStep && nextIdx < steps.length){
+      t.speak  = "Next. " + steps[nextIdx].text;
+      t.banner = "Next: " + steps[nextIdx].text;
+      t.go = nextIdx;
+    }else if(onThisStep){
+      t.speak  = "That's the last step. You're done.";
+      t.banner = "That was the last step.";
+      t.go = null;
+    }else{
+      t.speak  = "Your " + t.mins + " minute timer has finished.";
+      t.banner = (steps[t.step] || {}).text || t.label;
+      t.go = nextIdx < steps.length ? nextIdx : null;
+    }
   });
-  setTimeout(()=>say("Timer finished. " + texts.join(". Also. ")), 750);
+  saveCook();
+  chime();
+  const line = due.map(t=>t.speak).join(" And. ");
+  setTimeout(()=>say(line), 750);
   drawCook();
 }
 function tickCook(){
@@ -2415,10 +2440,13 @@ function drawCook(){
       + '<button class="cx" data-tcancel="'+t.tid+'" aria-label="Clear">×</button></span>').join("");
 
   const fired = cook.timers.filter(t=>t.fired);
+  const jumpTo = fired.length===1 && fired[0].go!=null && fired[0].go!==i ? fired[0].go : null;
   const alert = fired.length
     ? '<div class="cookalert"><div class="at">'
-      + esc(fired.map(t=>(steps[t.step]||{}).text || t.label).join(" · "))
-      + '</div><button data-clearfired>Got it</button></div>'
+      + esc(fired.map(t=>t.banner || (steps[t.step]||{}).text || t.label).join(" · "))
+      + '</div>'
+      + (jumpTo!=null ? '<button data-gostep="'+jumpTo+'">Go there</button>' : "")
+      + '<button data-clearfired>Got it</button></div>'
     : "";
 
   let mainHTML;
