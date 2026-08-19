@@ -236,6 +236,11 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 .cookalert .at{flex:1;font-weight:650;font-size:15px;line-height:1.35}
 .cookalert button{border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;
   border-radius:9px;padding:7px 12px;font-weight:700;font-size:13px}
+.amts{display:flex;flex-wrap:wrap;gap:7px;margin:-8px 0 20px}
+.amt{background:var(--accent-soft);color:var(--accent);border-radius:99px;
+  padding:6px 12px;font-size:14.5px;font-weight:600}
+.amt b{font-weight:800}
+.ovmethod li.here{background:var(--accent-soft);border-radius:9px;padding:8px 10px;margin-left:-10px;font-weight:650}
 .cdone{text-align:center;padding:30px 10px}
 .cdone .big{font-size:22px;font-weight:700;margin-bottom:8px}
 
@@ -290,7 +295,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.18.2";
+const APP_VERSION = "2026.08.18.3";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -1236,6 +1241,8 @@ function openHelp(){
   <div class="helpsec">
     <h3>Cooking along</h3>
     <p>Open a recipe and tap <b>Start cooking</b>. You get one step at a time in large type, with <b>Back</b> and <b>Next</b>, and the screen is held awake for the whole session so it doesn't go dark with your hands covered in flour.</p>
+    <p>Under each step you'll see orange pills with the amounts it needs — "100g cherry tomatoes" — so you're not scrolling back to the ingredients mid-cook. They're worked out from the recipe, and skipped where the step already spells the amount out itself.</p>
+    <p>The <b>&#9776;</b> button at the top opens the whole recipe, ingredients and every step, with where you are highlighted. Timers carry on running while you read, and the button at the bottom drops you back on exactly the step you left.</p>
     <p>Where a step has a time on it, there's a <b>Start timer</b> button. The important bit: once started, a timer <b>keeps running while you move on</b>. Put the potatoes in, tap Next, and carry on prepping — the countdown sits in a chip along the top and you can have several going at once. <b>+1 min</b> extends one, <b>Stop</b> cancels it.</p>
     <p>It stays quiet while you work. When a timer finishes you get a chime and a green banner, and it speaks. If you're standing at that pan it tells you <b>what to do next</b> — "Next. Turn and cook the second side." If it's something you left running while you moved on, the next step in the list has nothing to do with it, so it names the timer instead — "Your 48 minute timer has finished" — and offers a <b>Go there</b> button if you want to jump to it. Either way it won't move you on by itself; tap <b>Got it</b> and carry on where you were.</p>
     <p class="q">One limitation worth knowing: this only works with the app open and the screen on. A web app can't wake itself up, so if you lock the phone or switch apps the timers stop. Prop it up somewhere in the kitchen, ideally on a charger. If you close it by accident, reopening within the timer's lifetime picks the session straight back up.</p>
@@ -1368,12 +1375,13 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
   if(!t) return;
 
   // ---- cook along ----
   if(t.dataset.cookstart!==undefined && t.hasAttribute("data-cookstart")){ startCooking(t.dataset.cookstart); return; }
   if(t.hasAttribute("data-cookexit")){ stopCooking(); return; }
+  if(t.dataset.cookview){ cook.view = t.dataset.cookview; saveCook(); drawCook(); return; }
   if(t.hasAttribute("data-cooknext")){ cookMove(1); return; }
   if(t.hasAttribute("data-cookprev")){ cookMove(-1); return; }
   if(t.dataset.starttimer!==undefined && t.hasAttribute("data-starttimer")){ primeAudio(); startTimer(Number(t.dataset.starttimer)); return; }
@@ -2337,6 +2345,54 @@ document.addEventListener("visibilitychange", ()=>{
 });
 
 const shortLabel = s => { const w = String(s).split(/\s+/); return w.slice(0,4).join(" ") + (w.length>4?"…":""); };
+
+/* Match an ingredient name inside a step, allowing for the plural:
+   "cherry tomatoes" in the list finds "cherry tomato" or "tomatoes" in the text. */
+function ingRegex(item){
+  const clean = String(item).trim().toLowerCase().replace(/[^\w\s'-]/g," ").replace(/\s+/g," ");
+  const words = clean.split(" ").filter(Boolean);
+  if(!words.length) return null;
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const last = singular(words.pop());
+  const head = words.map(esc).join("\\s+");
+  return new RegExp("\\b" + (head ? head + "\\s+" : "") + esc(last) + "(e?s)?\\b", "i");
+}
+/* Which ingredients does this step mention, and how much of them?
+   Skipped when the step already spells the amount out itself, so you don't
+   get "Toss with 1 tsp olive oil (2tsp)". */
+function stepAmounts(doc, idx){
+  const s = doc.steps[idx]; if(!s) return [];
+  const text = s.text || "";
+  const ings = (doc.ingredients||[]).filter(i=>i.item);
+  /* Recipes say "the cream cheese" where the list says "light cream cheese",
+     so try dropping leading words — but only while the shortened name still
+     picks out one ingredient, so "oil" never stands for two different oils. */
+  const suffixes = item => {
+    const w = String(item).trim().split(/\s+/);
+    return w.map((_,n)=>w.slice(n).join(" "));
+  };
+  const claims = c => ings.filter(o=>suffixes(o.item).some(x=>x.toLowerCase()===c.toLowerCase())).length;
+
+  const out = [];
+  ings.forEach(ing=>{
+    if(ing.qty==null || ing.qty==="") return;
+    const cands = suffixes(ing.item);
+    for(let n=0; n<cands.length; n++){
+      const c = cands[n];
+      if(n > 0 && claims(c) > 1) break;              // too vague to be sure
+      const re = ingRegex(c); if(!re) continue;
+      const m = text.match(re); if(!m) continue;
+      const before = text.slice(Math.max(0, m.index-16), m.index);
+      if(/\d\s*(g|kg|ml|l|tsp|tbsp|clove|can|pack)?\s*$/i.test(before)) return;  // already stated
+      out.push(ing);
+      return;
+    }
+  });
+  // Longest names win, so "cherry tomatoes" doesn't also drag in "tomatoes".
+  return out.filter(a=>!out.some(b=>b!==a
+      && b.item.toLowerCase().includes(a.item.toLowerCase())
+      && b.item.length > a.item.length));
+}
 const mmss = ms => {
   const t = Math.max(0, Math.round(ms/1000));
   return Math.floor(t/60) + ":" + String(t%60).padStart(2,"0");
@@ -2465,13 +2521,45 @@ function drawCook(){
     }else if(s.mins){
       timerHTML = '<button class="bigbtn ghost" data-starttimer="'+i+'">Start '+s.mins+' min timer</button>';
     }
+    const amts = stepAmounts(r.doc, i);
+    const amtHTML = amts.length
+      ? '<div class="amts">'+amts.map(a=>'<span class="amt"><b>'+prettyQty(a.qty,a.unit)+'</b> '+esc(a.item)+'</span>').join("")+'</div>'
+      : "";
     mainHTML = '<div class="cnum">'+(i+1)+'</div><p class="ctext">'+esc(s.text)+'</p>'
+      + amtHTML
       + '<div class="ctimer">'+timerHTML+'</div>';
+  }
+
+  /* The whole recipe, without giving up your place or stopping anything. */
+  if(cook.view === "recipe"){
+    const back = done ? "Back" : "Back to step "+(i+1);
+    let ov = '<label class="f">Ingredients</label><div style="margin-bottom:22px">'
+      + r.doc.ingredients.map(ing=>'<div class="ingline"><span style="min-width:78px;font-weight:700">'
+        + prettyQty(ing.qty,ing.unit)+'</span><span>'+esc(ing.item)+'</span></div>').join("")
+      + '</div><label class="f">Method</label><ol class="method ovmethod">'
+      + steps.map((st,n)=>'<li'+(n===i?' class="here" id="curstep"':'')+'>'+esc(st.text)
+        + (st.mins?'<span class="t">'+st.mins+' min</span>':"")+'</li>').join("")
+      + '</ol>';
+    const ovHTML = '<div class="cookwrap" id="cookwrap">'
+      + '<div class="cookbar"><button class="btn sm ghost" data-cookexit>Exit</button>'
+      + '<div class="ctitle">'+esc(r.doc.name)+'</div>'
+      + '<button class="btn sm" data-cookview="step">'+back+'</button></div>'
+      + alert
+      + ((rung||rang) ? '<div class="chips">'+rung+rang+'</div>' : "")
+      + '<div class="cookmain" style="padding-top:14px">'+ov+'</div>'
+      + '<div class="cooknav"><button class="btn primary" data-cookview="step" style="flex:1">'+back+'</button></div>'
+      + '</div>';
+    const prev = document.getElementById("cookwrap");
+    if(prev) prev.outerHTML = ovHTML; else document.body.insertAdjacentHTML("beforeend", ovHTML);
+    const cur = document.getElementById("curstep");
+    if(cur) cur.scrollIntoView({block:"center"});
+    return;
   }
 
   const html = '<div class="cookwrap" id="cookwrap">'
     + '<div class="cookbar"><button class="btn sm ghost" data-cookexit>Exit</button>'
     + '<div class="ctitle">'+esc(r.doc.name)+'</div>'
+    + '<button class="btn sm ghost" data-cookview="recipe" title="Whole recipe">☰</button>'
     + '<div class="cstep">'+(done?"done":(i+1)+" / "+steps.length)+'</div></div>'
     + '<div class="cprog"><i style="width:'+Math.round((Math.min(i,steps.length)/steps.length)*100)+'%"></i></div>'
     + alert
