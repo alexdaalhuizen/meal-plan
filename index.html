@@ -236,6 +236,32 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 .cookalert .at{flex:1;font-weight:650;font-size:15px;line-height:1.35}
 .cookalert button{border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;
   border-radius:9px;padding:7px 12px;font-weight:700;font-size:13px}
+/* ---------- spending ---------- */
+.viz-root{--chart:#b4532a;--chart-soft:#fbeee6;--grid:#e7ded2}
+@media (prefers-color-scheme:dark){.viz-root{--chart:#d9713d;--chart-soft:#3a251a;--grid:#352d25}}
+.seg{border:1px solid var(--line);background:var(--card);font-weight:650}
+.seg.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.hero{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.hero .big{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.hero .sub{font-size:14px;color:var(--muted);font-weight:600}
+.kpis{display:flex;gap:10px;margin:16px 0 4px}
+.kpi{flex:1;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 13px;box-shadow:var(--shadow)}
+.kpi .k{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.kpi .v{font-size:21px;font-weight:800;margin-top:3px;letter-spacing:-.02em}
+.chartcard{padding:16px 14px 10px;margin-top:14px}
+.chartcap{font-size:13px;color:var(--muted);text-align:center;margin-top:2px;min-height:19px}
+.wrow{display:flex;align-items:center;gap:12px;padding:13px 14px;border-bottom:1px solid var(--line);width:100%;
+  background:none;border-left:0;border-right:0;border-top:0;text-align:left}
+.wrow:last-child{border-bottom:0}
+.wrow .wd{flex:1}
+.wrow .wk{font-weight:650;font-size:14.5px}
+.wrow .wm{font-size:12.5px;color:var(--muted);margin-top:1px}
+.wrow .wv{font-weight:800;font-size:16px;letter-spacing:-.01em}
+.secbar{display:flex;align-items:center;gap:10px;padding:7px 0}
+.secbar .sl{width:96px;font-size:13px;color:var(--muted);flex:none}
+.secbar .st{flex:1;height:10px;background:var(--chart-soft);border-radius:99px;overflow:hidden}
+.secbar .st i{display:block;height:100%;background:var(--chart);border-radius:99px}
+.secbar .sv{font-size:13px;font-weight:700;width:58px;text-align:right;flex:none}
 .amts{display:flex;flex-wrap:wrap;gap:7px;margin:-8px 0 20px}
 .amt{background:var(--accent-soft);color:var(--accent);border-radius:99px;
   padding:6px 12px;font-size:14.5px;font-weight:600}
@@ -283,6 +309,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
     <button class="tab on" data-tab="plan">Plan</button>
     <button class="tab" data-tab="recipes">Recipes</button>
     <button class="tab" data-tab="shopping">Shopping</button>
+    <button class="tab" data-tab="spend">Spend</button>
   </nav>
 </header>
 
@@ -295,7 +322,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.18.3";
+const APP_VERSION = "2026.08.19.2";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -656,6 +683,7 @@ function render(){
   document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on", b.dataset.tab===tab));
   if(tab==="plan") renderPlan();
   else if(tab==="recipes") renderRecipes();
+  else if(tab==="spend") renderSpend();
   else renderShopping();
 }
 function weekNav(){
@@ -727,6 +755,316 @@ function renderRecipes(){
     renderRecipes();
     const n2=document.getElementById("rsearch"); n2.focus(); n2.setSelectionRange(p,p);
   });
+}
+
+/* =========================================================
+   Spending — what the shop actually cost
+   ========================================================= */
+/* Money. Receipts remember the currency they were rung up in; everything is
+   reported in whichever you've chosen, converted at a rate you set yourself
+   so it never depends on the network or goes stale behind your back. */
+const CURRENCIES = { QAR:{sym:"QAR ", name:"Qatari riyal"}, GBP:{sym:"£", name:"Pound sterling"} };
+const DEFAULT_RATE = 4.96;                 // QAR per GBP, editable in settings
+function moneyCfg(){
+  const s = get("setting:money");
+  return { cur:(s && s.doc.cur) || "QAR", rate:(s && Number(s.doc.rate)) || DEFAULT_RATE };
+}
+const curCode = () => moneyCfg().cur;
+const curSym  = code => (CURRENCIES[code||curCode()] || CURRENCIES.QAR).sym;
+const money  = (n,code) => curSym(code) + (Math.round(Number(n)*100)/100).toFixed(2);
+const money0 = (n,code) => curSym(code) + Math.round(Number(n));
+/* Older receipts predate the setting and were entered when the app said £. */
+const entryCur = doc => doc.cur || "GBP";
+function inDisplay(amount, cur){
+  const {cur:disp, rate} = moneyCfg();
+  const from = cur || "GBP";
+  const v = Number(amount) || 0;
+  if(from === disp || !rate) return v;
+  return disp === "QAR" ? v*rate : v/rate;
+}
+let spendWeekSel = null;     // week highlighted on the chart
+
+function spendEntries(w){ return all("spend").filter(s=>s.doc.week===w).sort((a,b)=>(a.doc.at||0)-(b.doc.at||0)); }
+function spendTotal(w){ return spendEntries(w).reduce((a,s)=>a+inDisplay(s.doc.amount, entryCur(s.doc)), 0); }
+/* True if anything on screen has been converted, so we can say so. */
+function anyConverted(){
+  const disp = curCode();
+  return all("spend").some(s=>entryCur(s.doc) !== disp);
+}
+/* Every week that has at least one receipt, oldest first. */
+function spendWeeks(){
+  const set = {};
+  all("spend").forEach(s=>{ set[s.doc.week] = true; });
+  return Object.keys(set).sort();
+}
+/* Fills the gaps, so a week you didn't record shows as a gap rather than
+   quietly disappearing and flattering the average. */
+function spendSeries(limit){
+  const weeks = spendWeeks();
+  if(!weeks.length) return [];
+  const last = parseISO(weeks[weeks.length-1]);
+  const first = parseISO(weeks[0]);
+  const span = Math.round((last-first)/(7*864e5)) + 1;
+  const n = Math.min(span, limit||12);
+  const out = [];
+  for(let k=n-1; k>=0; k--){
+    const w = iso(addDays(last, -k*7));
+    out.push({ week:w, total:spendTotal(w), has:spendEntries(w).length>0 });
+  }
+  return out;
+}
+function sectionTotals(w){
+  const acc = {};
+  spendEntries(w).forEach(s=>{
+    const sec = s.doc.sections || {}, c = entryCur(s.doc);
+    Object.keys(sec).forEach(k=>{ const v=Number(sec[k])||0; if(v) acc[k]=(acc[k]||0)+inDisplay(v,c); });
+  });
+  return acc;
+}
+
+function barPath(x,y,w,h,r){
+  r = Math.max(0, Math.min(r, w/2, h));
+  return "M"+x+","+(y+h)+" L"+x+","+(y+r)+" Q"+x+","+y+" "+(x+r)+","+y
+       + " L"+(x+w-r)+","+y+" Q"+(x+w)+","+y+" "+(x+w)+","+(y+r)
+       + " L"+(x+w)+","+(y+h)+" Z";
+}
+/* One series, one hue, so no legend — the heading says what it is. */
+function spendChart(series, avg){
+  if(!series.length) return "";
+  const W=340, H=168, PAD_L=8, PAD_R=8, PAD_T=26, PAD_B=22;
+  const plotW = W-PAD_L-PAD_R, plotH = H-PAD_T-PAD_B;
+  const max = Math.max(avg, ...series.map(s=>s.total)) || 1;
+  const top = max * 1.12;
+  const slot = plotW / series.length;
+  const bw = Math.max(6, Math.min(24, slot-6));
+  const y = v => PAD_T + plotH - (v/top)*plotH;
+
+  let bars = "", labels = "";
+  series.forEach((s,n)=>{
+    const x = PAD_L + slot*n + (slot-bw)/2;
+    const on = spendWeekSel === s.week;
+    if(s.has){
+      const h = Math.max(2, plotH - (plotH - (s.total/top)*plotH));
+      bars += '<path d="'+barPath(x, y(s.total), bw, PAD_T+plotH-y(s.total), 4)+'" fill="var(--chart)"'
+            + (on?'':' opacity="'+(spendWeekSel?0.35:1)+'"')
+            + ' data-spendweek="'+s.week+'"></path>';
+    }else{
+      bars += '<rect x="'+x+'" y="'+(PAD_T+plotH-3)+'" width="'+bw+'" height="3" rx="1.5" fill="var(--grid)"'
+            + ' data-spendweek="'+s.week+'"></rect>';
+    }
+    if(n===0 || n===series.length-1){
+      const d = parseISO(s.week);
+      labels += '<text x="'+(x+bw/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="10.5" fill="var(--muted)">'
+              + fmtShort(d) + '</text>';
+    }
+  });
+  // the one direct label: the most recent shop
+  const lastS = series[series.length-1];
+  let tip = "";
+  if(lastS && lastS.has){
+    const x = PAD_L + slot*(series.length-1) + slot/2;
+    tip = '<text x="'+x+'" y="'+(y(lastS.total)-8)+'" text-anchor="end" font-size="12.5" font-weight="700" fill="var(--ink)">'
+        + money0(lastS.total) + '</text>';
+  }
+  const avgY = y(avg);
+  const avgLine = avg>0
+    ? '<line x1="'+PAD_L+'" y1="'+avgY+'" x2="'+(W-PAD_R)+'" y2="'+avgY+'" stroke="var(--grid)" stroke-width="1"></line>'
+      + '<text x="'+PAD_L+'" y="'+(avgY-5)+'" font-size="10.5" fill="var(--muted)">avg '+money0(avg)+'</text>'
+    : "";
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Weekly shopping spend">'
+       + avgLine + bars + tip + labels + '</svg>';
+}
+
+function renderSpend(){
+  const weeks = spendWeeks();
+  const recorded = weeks.map(w=>spendTotal(w));
+  const avg = recorded.length ? recorded.reduce((a,b)=>a+b,0)/recorded.length : 0;
+  const thisWeek = iso(mondayOf(new Date()));
+  const thisTotal = spendTotal(thisWeek);
+  const addBtn = '<button class="btn primary" data-act="addspend" style="width:100%;margin-top:16px;padding:13px">+ Add what you spent</button>';
+
+  if(!weeks.length){
+    view.innerHTML = '<div class="card empty">Nothing recorded yet.<br>'
+      + '<span class="small">After a shop, put the receipt total in and it starts keeping track.</span></div>' + addBtn;
+    return;
+  }
+
+  const series = spendSeries(12);
+  const shops = spendEntries(thisWeek).length;
+
+  let html = '<div class="viz-root">';
+  html += '<div class="hero"><span class="big">'+(thisTotal?money(thisTotal):"—")+'</span>'
+    + '<span class="sub">this week'+(shops?" · "+shops+" "+plural(shops,"shop"):", not recorded yet")+'</span></div>';
+
+  html += '<div class="kpis">'
+    + '<div class="kpi"><div class="k">Weekly average</div><div class="v">'+money(avg)+'</div></div>'
+    + '<div class="kpi"><div class="k">Weeks tracked</div><div class="v">'+recorded.length+'</div></div>'
+    + '</div>';
+  if(anyConverted()){
+    const cfg = moneyCfg();
+    html += '<p class="tiny muted" style="margin:8px 2px 0">Shown in '+cfg.cur
+      + '. Other currencies converted at 1 GBP = '+cfg.rate+' QAR — '
+      + '<button class="btn sm ghost" data-act="money" style="padding:0;font-size:12px">change</button></p>';
+  }
+
+  const sel = spendWeekSel && spendTotal(spendWeekSel)
+    ? fmtShort(parseISO(spendWeekSel))+" — "+money(spendTotal(spendWeekSel))
+    : "Tap a bar to see that week";
+  html += '<div class="card chartcard"><div class="small muted" style="margin-bottom:2px">Spend per week</div>'
+    + spendChart(series, avg) + '<div class="chartcap">'+esc(sel)+'</div></div>';
+
+  // Where the money went, when the sections have been filled in
+  const secWeek = (spendWeekSel && Object.keys(sectionTotals(spendWeekSel)).length) ? spendWeekSel
+                : weeks.slice().reverse().find(w=>Object.keys(sectionTotals(w)).length);
+  if(secWeek){
+    const sec = sectionTotals(secWeek);
+    const rows = Object.keys(sec).sort((a,b)=>sec[b]-sec[a]);
+    const top = sec[rows[0]] || 1;
+    const sum = rows.reduce((a,k)=>a+sec[k],0);
+    const tot = spendTotal(secWeek);
+    html += '<label class="f" style="margin-top:22px">Where it went · week of '+fmtShort(parseISO(secWeek))+'</label>'
+      + '<div class="card" style="padding:10px 14px">'
+      + rows.map(k=>'<div class="secbar"><span class="sl">'+esc(k)+'</span>'
+        + '<span class="st"><i style="width:'+Math.round((sec[k]/top)*100)+'%"></i></span>'
+        + '<span class="sv">'+money(sec[k])+'</span></div>').join("")
+      + (tot - sum > 0.01
+          ? '<div class="secbar"><span class="sl">Unassigned</span><span class="st"><i style="width:'
+            + Math.round(((tot-sum)/top)*100)+'%;opacity:.4"></i></span><span class="sv">'+money(tot-sum)+'</span></div>'
+          : "")
+      + '</div>';
+  }
+
+  html += '<label class="f" style="margin-top:22px">Every week</label><div class="card">'
+    + weeks.slice().reverse().map(w=>{
+        const d = weekDates(w), n = spendEntries(w).length;
+        const hasSec = Object.keys(sectionTotals(w)).length;
+        return '<button class="wrow" data-spendopen="'+w+'"><div class="wd">'
+          + '<div class="wk">'+fmtShort(d[0])+' – '+fmtShort(d[6])+'</div>'
+          + '<div class="wm">'+n+' '+plural(n,"shop")+(hasSec?" · broken down":"")+'</div></div>'
+          + '<div class="wv">'+money(spendTotal(w))+'</div></button>';
+      }).join("")
+    + '</div>';
+
+  html += addBtn + '</div>';
+  view.innerHTML = html;
+}
+
+/* ---- add / edit a receipt ---- */
+let spendDraft = null;
+function openSpend(id){
+  const ex = id ? get(id) : null;
+  spendDraft = ex
+    ? { id:ex.id, week:ex.doc.week, amount:ex.doc.amount, shop:ex.doc.shop||"",
+        cur:entryCur(ex.doc), sections:Object.assign({}, ex.doc.sections||{}) }
+    : { id:null, week:iso(mondayOf(new Date())), amount:"", shop:"",
+        cur:curCode(), sections:{} };
+  drawSpendSheet();
+}
+function secSummary(){
+  const d = spendDraft;
+  const sum = Object.keys(d.sections).reduce((a,k)=>a+(Number(d.sections[k])||0),0);
+  const amt = Number(d.amount)||0;
+  return "Sections add up to <b>"+money(sum,d.cur)+"</b>" + (amt ? " of "+money(amt,d.cur) : "") + ".";
+}
+function drawSpendSheet(){
+  const d = spendDraft, wd = weekDates(d.week);
+  let h = '<label class="f">Currency on this receipt</label>'
+    + '<div class="row" style="gap:8px;margin-bottom:14px">'
+    + Object.keys(CURRENCIES).map(c=>{
+        const sym = CURRENCIES[c].sym.trim();
+        return '<button class="btn seg'+(d.cur===c?" on":"")+'" data-spcur="'+c+'" style="flex:1">'
+          + c + (sym!==c ? ' <span style="font-weight:400;opacity:.7">'+sym+'</span>' : "") + '</button>';
+      }).join("")
+    + '</div>'
+    + '<label class="f">Total on the receipt</label>'
+    + '<div class="row" style="gap:8px"><span style="font-size:20px;font-weight:700;color:var(--muted)">'+esc(curSym(d.cur).trim())+'</span>'
+    + '<input type="number" step="0.01" inputmode="decimal" id="spAmount" placeholder="0.00" value="'+(d.amount===""?"":d.amount)+'" style="font-size:22px;font-weight:700;padding:12px"></div>'
+    + '<label class="f" style="margin-top:14px">Shop <span style="text-transform:none;font-weight:400">— optional</span></label>'
+    + '<input type="text" id="spShop" placeholder="Tesco" value="'+esc(d.shop)+'">'
+    + '<label class="f" style="margin-top:14px">Which week</label>'
+    + '<div class="weeknav" style="margin-bottom:6px"><button class="arrow" data-spweek="-1">‹</button>'
+    + '<div class="wlabel">'+fmtShort(wd[0])+' – '+fmtShort(wd[6])+'</div>'
+    + '<button class="arrow" data-spweek="1">›</button></div>';
+
+  h += '<details style="margin-top:16px"'+(Object.keys(d.sections).length?" open":"")+'>'
+    + '<summary class="f" style="cursor:pointer;margin-bottom:10px">Break it down by section — optional</summary>'
+    + '<p class="tiny muted" style="margin:0 0 10px">Only if you fancy it. Fill in what you can; anything left over shows as unassigned.</p>'
+    + AISLES.map(a=>'<div class="row" style="gap:10px;margin-bottom:7px">'
+        + '<span class="small" style="flex:1">'+a+'</span>'
+        + '<input type="number" step="0.01" inputmode="decimal" data-sec="'+esc(a)+'" value="'+(d.sections[a]||"")+'" placeholder="0.00" style="width:104px">'
+        + '</div>').join("")
+    + '<p class="small muted" id="secSum" style="margin:10px 0 0">'+secSummary()+'</p></details>';
+
+  h += '<div class="row" style="margin-top:20px;gap:8px"><button class="btn primary" data-act="savespend">Save</button>'
+    + '<button class="btn ghost" data-close>Cancel</button>'
+    + (d.id?'<div class="sp"></div><button class="btn sm danger" data-act="delspend">Delete</button>':"")
+    + '</div>';
+  sheet(d.id?"Edit receipt":"What you spent", h);
+
+  const grab = ()=>{
+    const a = document.getElementById("spAmount"), s = document.getElementById("spShop");
+    if(a) spendDraft.amount = a.value;
+    if(s) spendDraft.shop = s.value;
+    modal.querySelectorAll("[data-sec]").forEach(el=>{
+      const v = el.value.trim();
+      if(v === "") delete spendDraft.sections[el.dataset.sec];
+      else spendDraft.sections[el.dataset.sec] = Number(v)||0;
+    });
+  };
+  /* Update the running total in place rather than redrawing — a redraw
+     would yank the keyboard away mid-entry. */
+  const refresh = ()=>{ grab(); const el = document.getElementById("secSum"); if(el) el.innerHTML = secSummary(); };
+  modal.querySelectorAll("#spAmount,#spShop,[data-sec]").forEach(el=>{
+    el.addEventListener("input", refresh);
+    el.addEventListener("change", refresh);
+  });
+  spendDraft.grab = grab;
+}
+function saveSpend(){
+  if(spendDraft.grab) spendDraft.grab();
+  const d = spendDraft;
+  const amt = Number(d.amount);
+  if(!amt || amt<=0){ toast("Put in what it came to"); return; }
+  const doc = { week:d.week, amount:Math.round(amt*100)/100, shop:(d.shop||"").trim(),
+                cur: d.cur || curCode(),
+                at: d.id ? (get(d.id)||{doc:{}}).doc.at || Date.now() : Date.now(),
+                sections: d.sections };
+  put("spend", d.id || uid("sp-"), doc);
+  closeModal(); spendWeekSel = d.week; tab = "spend"; render(); toast("Saved");
+}
+function openMoney(){
+  const cfg = moneyCfg();
+  const h = '<p class="small muted" style="margin:0 0 14px">Which currency the Spend tab reports in. Each receipt still remembers what it was actually paid in.</p>'
+    + '<label class="f">Show everything in</label>'
+    + '<div class="row" style="gap:8px;margin-bottom:18px">'
+    + Object.keys(CURRENCIES).map(c=>'<button class="btn seg'+(cfg.cur===c?" on":"")+'" data-setcur="'+c+'" style="flex:1">'
+        + c + ' <span style="font-weight:400;opacity:.7">'+CURRENCIES[c].name+'</span></button>').join("")
+    + '</div>'
+    + '<label class="f">Exchange rate</label>'
+    + '<div class="row" style="gap:8px"><span class="small" style="white-space:nowrap">1 GBP =</span>'
+    + '<input type="number" step="0.0001" inputmode="decimal" id="fxRate" value="'+cfg.rate+'" style="width:120px">'
+    + '<span class="small">QAR</span></div>'
+    + '<p class="tiny muted" style="margin:8px 0 0">You set this yourself, so it never changes behind your back. Around '
+    + DEFAULT_RATE + ' as of August 2026 — update it whenever you like.</p>'
+    + '<div class="row" style="margin-top:20px;gap:8px"><button class="btn primary" data-act="savemoney">Save</button>'
+    + '<button class="btn ghost" data-close>Cancel</button></div>';
+  sheet("Currency", h);
+}
+function openSpendWeek(w){
+  const list = spendEntries(w), wd = weekDates(w);
+  let h = '<p class="small muted" style="margin:0 0 14px">'+fmtShort(wd[0])+' – '+fmtShort(wd[6])
+    + ' · total <b>'+money(spendTotal(w))+'</b></p><div class="card">'
+    + list.map(s=>{
+        const c = entryCur(s.doc), foreign = c !== curCode();
+        return '<button class="wrow" data-spendedit="'+s.id+'"><div class="wd">'
+          + '<div class="wk">'+esc(s.doc.shop || "Shop")+'</div>'
+          + '<div class="wm">'+(Object.keys(s.doc.sections||{}).length?"broken down":"total only")
+          + (foreign ? " · paid "+money(s.doc.amount,c) : "")+'</div></div>'
+          + '<div class="wv">'+money(inDisplay(s.doc.amount,c))+'</div></button>';
+      }).join("")
+    + '</div>'
+    + '<button class="btn" data-act="addspend" data-week="'+w+'" style="margin-top:14px">+ Another shop this week</button>';
+  sheet("Week of "+fmtShort(wd[0]), h);
 }
 
 /* Everything on the list — worked out from the meals, plus anything typed
@@ -1296,6 +1634,15 @@ function openHelp(){
   </div>
 
   <div class="helpsec">
+    <h3>Tracking what you spend</h3>
+    <p>The <b>Spend</b> tab keeps a note of what the shopping actually costs. After a shop, tap <b>Add what you spent</b>, put in the receipt total and optionally which shop. You can add more than one for a week — a big shop and a top-up later on both count towards that week.</p>
+    <p>You get this week's figure, your weekly average, and a bar per week going back. Tap a bar to see that week. A week you didn't record shows as a gap rather than a zero, and the average only counts weeks you actually entered, so a missed week doesn't flatter the number.</p>
+    <p><b>The breakdown is optional.</b> Inside the receipt form there's a section you can open to split the total by aisle — Produce, Meat &amp; Fish and so on, straight off the receipt. Fill in as much or as little as you like; whatever's left over is shown as "unassigned" rather than quietly absorbed. Most weeks the total on its own is plenty.</p>
+    <p><b>Currencies.</b> Each receipt records what it was actually rung up in — <b>QAR</b> or <b>GBP</b> — with a toggle at the top of the form. The Spend tab reports everything in one currency, QAR unless you change it under gear → <b>Currency</b>. Anything paid in the other one is converted at a rate <b>you set</b>, so it never changes behind your back or depends on the network. When something has been converted the app says so, and the week's detail still shows what you actually handed over.</p>
+    <p class="q">Spending syncs between you like everything else, so whoever does the shop can put it in.</p>
+  </div>
+
+  <div class="helpsec">
     <h3>Settings and backups</h3>
     <p><b>Default servings</b> sets what a new meal starts at, so you're not changing it every time.</p>
     <p><b>Export backup</b> saves everything to a file. Worth doing occasionally once you've typed in recipes you'd hate to lose. <b>Import backup</b> merges one back in.</p>
@@ -1352,6 +1699,7 @@ function openMenu(){
     + '<button data-act="help">How it works…</button>'
     + '<button data-act="sharing">Sharing &amp; sync…</button>'
     + '<button data-act="household">Default servings: '+household()+'</button>'
+    + '<button data-act="money">Currency: '+curCode()+'</button>'
     + '<button data-act="export">Export backup</button>'
     + '<button data-act="import">Import backup</button>'
     + '<button data-act="reset">Reset this device</button>'
@@ -1375,7 +1723,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
   if(!t) return;
 
   // ---- cook along ----
@@ -1410,6 +1758,22 @@ document.addEventListener("click", e=>{
     put("meal", uid("m-"), {date:pickTarget.dateISO, slot:pickTarget.slot, recipeId:t.dataset.pick,
                             servings:serv, order:Date.now(), frozen:frozen});
     closeModal(); render(); return;
+  }
+  if(t.dataset.spcur){
+    if(spendDraft.grab) spendDraft.grab();
+    spendDraft.cur = t.dataset.spcur; drawSpendSheet(); return;
+  }
+  if(t.dataset.setcur){
+    modal.querySelectorAll("[data-setcur]").forEach(el=>el.classList.toggle("on", el===t));
+    return;
+  }
+  if(t.dataset.spendweek){ spendWeekSel = (spendWeekSel===t.dataset.spendweek?null:t.dataset.spendweek); renderSpend(); return; }
+  if(t.dataset.spendopen){ openSpendWeek(t.dataset.spendopen); return; }
+  if(t.dataset.spendedit){ openSpend(t.dataset.spendedit); return; }
+  if(t.dataset.spweek){
+    if(spendDraft.grab) spendDraft.grab();
+    spendDraft.week = iso(addDays(parseISO(spendDraft.week), Number(t.dataset.spweek)*7));
+    drawSpendSheet(); return;
   }
   if(t.dataset.adjust){ openAdjust(t.dataset.adjust); return; }
   if(t.dataset.step){ stepAdjust(Number(t.dataset.step)); return; }
@@ -1463,6 +1827,18 @@ document.addEventListener("click", e=>{
       }catch(e){ console.warn("update", e); }
       setTimeout(()=>location.reload(true), 700);
     })();
+  }
+  else if(act==="money"){ closeMenu(); openMoney(); }
+  else if(act==="savemoney"){
+    const picked = modal.querySelector("[data-setcur].on");
+    const rate = Number(document.getElementById("fxRate").value) || DEFAULT_RATE;
+    put("setting","setting:money",{ cur:(picked && picked.dataset.setcur) || "QAR", rate:Math.round(rate*10000)/10000 });
+    closeModal(); render(); toast("Showing amounts in "+curCode());
+  }
+  else if(act==="addspend"){ openSpend(null); if(t.dataset.week){ spendDraft.week=t.dataset.week; drawSpendSheet(); } }
+  else if(act==="savespend"){ saveSpend(); }
+  else if(act==="delspend"){
+    if(confirm("Delete this receipt?")){ drop(spendDraft.id); closeModal(); render(); toast("Deleted"); }
   }
   else if(act==="adjsave"){ saveAdjust(); }
   else if(act==="adjreset"){ resetAdjust(); }
