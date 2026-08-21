@@ -241,6 +241,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 @media (prefers-color-scheme:dark){.viz-root{--chart:#d9713d;--chart-soft:#3a251a;--grid:#352d25}}
 .seg{border:1px solid var(--line);background:var(--card);font-weight:650}
 .seg.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.quickadd{padding:12px 13px}
 .hero{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .hero .big{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1}
 .hero .sub{font-size:14px;color:var(--muted);font-weight:600}
@@ -322,7 +323,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.19.2";
+const APP_VERSION = "2026.08.20";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -782,7 +783,13 @@ function inDisplay(amount, cur){
   if(from === disp || !rate) return v;
   return disp === "QAR" ? v*rate : v/rate;
 }
-let spendWeekSel = null;     // week highlighted on the chart
+const SHOPS = ["LuLu","Food World","Carrefour","Monoprix","Spar","Other"];
+let spendWeekSel = null;     // week or month highlighted on the chart
+let spendMode = "week";      // week | month
+let quickShop = SHOPS[0], quickAmt = "";   // kept across redraws so typing survives
+
+const monthKey   = w => w.slice(0,7);                       // the week's Monday decides its month
+const monthLabel = k => MONTHS[Number(k.slice(5,7))-1] + " " + k.slice(0,4);
 
 function spendEntries(w){ return all("spend").filter(s=>s.doc.week===w).sort((a,b)=>(a.doc.at||0)-(b.doc.at||0)); }
 function spendTotal(w){ return spendEntries(w).reduce((a,s)=>a+inDisplay(s.doc.amount, entryCur(s.doc)), 0); }
@@ -809,7 +816,35 @@ function spendSeries(limit){
   const out = [];
   for(let k=n-1; k>=0; k--){
     const w = iso(addDays(last, -k*7));
-    out.push({ week:w, total:spendTotal(w), has:spendEntries(w).length>0 });
+    out.push({ key:w, label:fmtShort(parseISO(w)), total:spendTotal(w), has:spendEntries(w).length>0 });
+  }
+  return out;
+}
+function spendMonths(){
+  const set = {};
+  spendWeeks().forEach(w=>{ set[monthKey(w)] = true; });
+  return Object.keys(set).sort();
+}
+function monthTotal(k){
+  return spendWeeks().filter(w=>monthKey(w)===k).reduce((a,w)=>a+spendTotal(w), 0);
+}
+function monthShops(k){
+  return spendWeeks().filter(w=>monthKey(w)===k).reduce((a,w)=>a+spendEntries(w).length, 0);
+}
+/* Every month between the first and the last, so a quiet month shows as a gap. */
+function monthSeries(limit){
+  const ms = spendMonths();
+  if(!ms.length) return [];
+  const [fy,fm] = ms[0].split("-").map(Number);
+  const [ly,lm] = ms[ms.length-1].split("-").map(Number);
+  const span = (ly-fy)*12 + (lm-fm) + 1;
+  const n = Math.min(span, limit||12);
+  const out = [];
+  for(let k=n-1; k>=0; k--){
+    let y = ly, m = lm - k;
+    while(m < 1){ m += 12; y -= 1; }
+    const key = y + "-" + String(m).padStart(2,"0");
+    out.push({ key, label:MONTHS[m-1], total:monthTotal(key), has:ms.includes(key) });
   }
   return out;
 }
@@ -831,7 +866,7 @@ function barPath(x,y,w,h,r){
 /* One series, one hue, so no legend — the heading says what it is. */
 function spendChart(series, avg){
   if(!series.length) return "";
-  const W=340, H=168, PAD_L=8, PAD_R=8, PAD_T=26, PAD_B=22;
+  const W=340, H=168, PAD_L=26, PAD_R=8, PAD_T=26, PAD_B=22;   // left gutter for the avg tag
   const plotW = W-PAD_L-PAD_R, plotH = H-PAD_T-PAD_B;
   const max = Math.max(avg, ...series.map(s=>s.total)) || 1;
   const top = max * 1.12;
@@ -842,20 +877,18 @@ function spendChart(series, avg){
   let bars = "", labels = "";
   series.forEach((s,n)=>{
     const x = PAD_L + slot*n + (slot-bw)/2;
-    const on = spendWeekSel === s.week;
+    const on = spendWeekSel === s.key;
     if(s.has){
-      const h = Math.max(2, plotH - (plotH - (s.total/top)*plotH));
       bars += '<path d="'+barPath(x, y(s.total), bw, PAD_T+plotH-y(s.total), 4)+'" fill="var(--chart)"'
             + (on?'':' opacity="'+(spendWeekSel?0.35:1)+'"')
-            + ' data-spendweek="'+s.week+'"></path>';
+            + ' data-spendweek="'+s.key+'"></path>';
     }else{
       bars += '<rect x="'+x+'" y="'+(PAD_T+plotH-3)+'" width="'+bw+'" height="3" rx="1.5" fill="var(--grid)"'
-            + ' data-spendweek="'+s.week+'"></rect>';
+            + ' data-spendweek="'+s.key+'"></rect>';
     }
-    if(n===0 || n===series.length-1){
-      const d = parseISO(s.week);
+    if(n===0 || n===series.length-1 || (series.length<=6 && s.has)){
       labels += '<text x="'+(x+bw/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="10.5" fill="var(--muted)">'
-              + fmtShort(d) + '</text>';
+              + esc(s.label) + '</text>';
     }
   });
   // the one direct label: the most recent shop
@@ -869,36 +902,70 @@ function spendChart(series, avg){
   const avgY = y(avg);
   const avgLine = avg>0
     ? '<line x1="'+PAD_L+'" y1="'+avgY+'" x2="'+(W-PAD_R)+'" y2="'+avgY+'" stroke="var(--grid)" stroke-width="1"></line>'
-      + '<text x="'+PAD_L+'" y="'+(avgY-5)+'" font-size="10.5" fill="var(--muted)">avg '+money0(avg)+'</text>'
+      /* Just "avg" — the figure itself is in the card above, so repeating it
+         only creates something to collide with. */
+      + '<text x="0" y="'+(avgY+3.5)+'" font-size="10" fill="var(--muted)">avg</text>'
     : "";
   return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Weekly shopping spend">'
        + avgLine + bars + tip + labels + '</svg>';
 }
 
+/* The nip-to-the-shops row: pick the shop, type the amount, done. */
+function quickAddHTML(){
+  return '<div class="card quickadd">'
+    + '<div class="small muted" style="margin-bottom:8px">Quick add — a top-up shop this week</div>'
+    + '<div class="row" style="gap:8px">'
+    + '<select id="qShop" style="flex:1.2">'+SHOPS.map(s=>'<option'+(s===quickShop?" selected":"")+'>'+s+'</option>').join("")+'</select>'
+    + '<input type="number" step="0.01" inputmode="decimal" id="qAmt" placeholder="'+esc(curSym().trim())+' amount" value="'+esc(quickAmt)+'" style="flex:1">'
+    + '<button class="btn primary" data-act="quickadd">Add</button>'
+    + '</div></div>';
+}
+function bindQuick(){
+  const s = document.getElementById("qShop"), a = document.getElementById("qAmt");
+  if(s) s.addEventListener("change", ()=>{ quickShop = s.value; });
+  if(a) a.addEventListener("input", ()=>{ quickAmt = a.value; });
+}
+function quickAdd(){
+  const s = document.getElementById("qShop"), a = document.getElementById("qAmt");
+  const amt = Number(a && a.value);
+  if(!amt || amt<=0){ toast("Put in an amount"); return; }
+  const w = iso(mondayOf(new Date()));
+  put("spend", uid("sp-"), { week:w, amount:Math.round(amt*100)/100, shop:(s&&s.value)||"Other",
+                             cur:curCode(), at:Date.now(), sections:{} });
+  quickAmt = ""; spendWeekSel = null;
+  renderSpend();
+  toast(money(amt)+" at "+((s&&s.value)||"the shops"));
+}
+
 function renderSpend(){
   const weeks = spendWeeks();
-  const recorded = weeks.map(w=>spendTotal(w));
-  const avg = recorded.length ? recorded.reduce((a,b)=>a+b,0)/recorded.length : 0;
-  const thisWeek = iso(mondayOf(new Date()));
-  const thisTotal = spendTotal(thisWeek);
-  const addBtn = '<button class="btn primary" data-act="addspend" style="width:100%;margin-top:16px;padding:13px">+ Add what you spent</button>';
+  const monthly = spendMode === "month";
+  const addBtn = '<button class="btn" data-act="addspend" style="width:100%;margin-top:12px;padding:13px">+ Add a full receipt</button>';
 
   if(!weeks.length){
-    view.innerHTML = '<div class="card empty">Nothing recorded yet.<br>'
-      + '<span class="small">After a shop, put the receipt total in and it starts keeping track.</span></div>' + addBtn;
+    view.innerHTML = '<div class="viz-root">' + quickAddHTML()
+      + '<div class="card empty" style="margin-top:14px">Nothing recorded yet.<br>'
+      + '<span class="small">Add a top-up above, or put a full receipt in below.</span></div>' + addBtn + '</div>';
+    bindQuick();
     return;
   }
 
-  const series = spendSeries(12);
-  const shops = spendEntries(thisWeek).length;
+  const thisWeek = iso(mondayOf(new Date()));
+  const thisMonth = thisWeek.slice(0,7);
+  const recorded = monthly ? spendMonths().map(monthTotal) : weeks.map(spendTotal);
+  const avg = recorded.length ? recorded.reduce((a,b)=>a+b,0)/recorded.length : 0;
+  const thisTotal = monthly ? monthTotal(thisMonth) : spendTotal(thisWeek);
+  const shops = monthly ? monthShops(thisMonth) : spendEntries(thisWeek).length;
+  const series = monthly ? monthSeries(12) : spendSeries(12);
 
-  let html = '<div class="viz-root">';
-  html += '<div class="hero"><span class="big">'+(thisTotal?money(thisTotal):"—")+'</span>'
-    + '<span class="sub">this week'+(shops?" · "+shops+" "+plural(shops,"shop"):", not recorded yet")+'</span></div>';
+  let html = '<div class="viz-root">' + quickAddHTML();
+  html += '<div class="hero" style="margin-top:18px"><span class="big">'+(thisTotal?money(thisTotal):"—")+'</span>'
+    + '<span class="sub">this '+(monthly?"month":"week")
+    + (shops?" · "+shops+" "+plural(shops,"shop"):", nothing yet")+'</span></div>';
 
   html += '<div class="kpis">'
-    + '<div class="kpi"><div class="k">Weekly average</div><div class="v">'+money(avg)+'</div></div>'
-    + '<div class="kpi"><div class="k">Weeks tracked</div><div class="v">'+recorded.length+'</div></div>'
+    + '<div class="kpi"><div class="k">'+(monthly?"Monthly":"Weekly")+' average</div><div class="v">'+money(avg)+'</div></div>'
+    + '<div class="kpi"><div class="k">'+(monthly?"Months":"Weeks")+' tracked</div><div class="v">'+recorded.length+'</div></div>'
     + '</div>';
   if(anyConverted()){
     const cfg = moneyCfg();
@@ -907,10 +974,15 @@ function renderSpend(){
       + '<button class="btn sm ghost" data-act="money" style="padding:0;font-size:12px">change</button></p>';
   }
 
-  const sel = spendWeekSel && spendTotal(spendWeekSel)
-    ? fmtShort(parseISO(spendWeekSel))+" — "+money(spendTotal(spendWeekSel))
-    : "Tap a bar to see that week";
-  html += '<div class="card chartcard"><div class="small muted" style="margin-bottom:2px">Spend per week</div>'
+  const hit = series.find(s=>s.key===spendWeekSel && s.has);
+  const sel = hit
+    ? (monthly ? monthLabel(hit.key) : fmtShort(parseISO(hit.key))) + " — " + money(hit.total)
+    : "Tap a bar to see that "+(monthly?"month":"week");
+  html += '<div class="card chartcard">'
+    + '<div class="row" style="margin-bottom:8px"><div class="small muted" style="flex:1">Spend per '+(monthly?"month":"week")+'</div>'
+    + '<span class="row" style="gap:6px">'
+    + '<button class="btn sm seg'+(monthly?"":" on")+'" data-spmode="week">Weekly</button>'
+    + '<button class="btn sm seg'+(monthly?" on":"")+'" data-spmode="month">Monthly</button></span></div>'
     + spendChart(series, avg) + '<div class="chartcap">'+esc(sel)+'</div></div>';
 
   // Where the money went, when the sections have been filled in
@@ -934,19 +1006,31 @@ function renderSpend(){
       + '</div>';
   }
 
-  html += '<label class="f" style="margin-top:22px">Every week</label><div class="card">'
-    + weeks.slice().reverse().map(w=>{
-        const d = weekDates(w), n = spendEntries(w).length;
-        const hasSec = Object.keys(sectionTotals(w)).length;
-        return '<button class="wrow" data-spendopen="'+w+'"><div class="wd">'
-          + '<div class="wk">'+fmtShort(d[0])+' – '+fmtShort(d[6])+'</div>'
-          + '<div class="wm">'+n+' '+plural(n,"shop")+(hasSec?" · broken down":"")+'</div></div>'
-          + '<div class="wv">'+money(spendTotal(w))+'</div></button>';
-      }).join("")
-    + '</div>';
+  if(monthly){
+    html += '<label class="f" style="margin-top:22px">Every month</label><div class="card">'
+      + spendMonths().slice().reverse().map(k=>{
+          const n = monthShops(k), wk = spendWeeks().filter(w=>monthKey(w)===k).length;
+          return '<div class="wrow"><div class="wd"><div class="wk">'+monthLabel(k)+'</div>'
+            + '<div class="wm">'+wk+' '+plural(wk,"week")+' · '+n+' '+plural(n,"shop")+'</div></div>'
+            + '<div class="wv">'+money(monthTotal(k))+'</div></div>';
+        }).join("")
+      + '</div>';
+  }else{
+    html += '<label class="f" style="margin-top:22px">Every week</label><div class="card">'
+      + weeks.slice().reverse().map(w=>{
+          const d = weekDates(w), n = spendEntries(w).length;
+          const hasSec = Object.keys(sectionTotals(w)).length;
+          return '<button class="wrow" data-spendopen="'+w+'"><div class="wd">'
+            + '<div class="wk">'+fmtShort(d[0])+' – '+fmtShort(d[6])+'</div>'
+            + '<div class="wm">'+n+' '+plural(n,"shop")+(hasSec?" · broken down":"")+'</div></div>'
+            + '<div class="wv">'+money(spendTotal(w))+'</div></button>';
+        }).join("")
+      + '</div>';
+  }
 
   html += addBtn + '</div>';
   view.innerHTML = html;
+  bindQuick();
 }
 
 /* ---- add / edit a receipt ---- */
@@ -979,8 +1063,13 @@ function drawSpendSheet(){
     + '<label class="f">Total on the receipt</label>'
     + '<div class="row" style="gap:8px"><span style="font-size:20px;font-weight:700;color:var(--muted)">'+esc(curSym(d.cur).trim())+'</span>'
     + '<input type="number" step="0.01" inputmode="decimal" id="spAmount" placeholder="0.00" value="'+(d.amount===""?"":d.amount)+'" style="font-size:22px;font-weight:700;padding:12px"></div>'
-    + '<label class="f" style="margin-top:14px">Shop <span style="text-transform:none;font-weight:400">— optional</span></label>'
-    + '<input type="text" id="spShop" placeholder="Tesco" value="'+esc(d.shop)+'">'
+    + '<label class="f" style="margin-top:14px">Shop</label>'
+    + '<select id="spShop">'
+    + SHOPS.map(s=>'<option'+((d.shop===s || (s==="Other" && d.shop && SHOPS.indexOf(d.shop)<0))?" selected":"")+'>'+s+'</option>').join("")
+    + '</select>'
+    + (d.shop && SHOPS.indexOf(d.shop)<0
+        ? '<input type="text" id="spShopOther" placeholder="Which shop?" value="'+esc(d.shop)+'" style="margin-top:8px">'
+        : '<input type="text" id="spShopOther" placeholder="Which shop?" style="margin-top:8px;display:none">')
     + '<label class="f" style="margin-top:14px">Which week</label>'
     + '<div class="weeknav" style="margin-bottom:6px"><button class="arrow" data-spweek="-1">‹</button>'
     + '<div class="wlabel">'+fmtShort(wd[0])+' – '+fmtShort(wd[6])+'</div>'
@@ -1003,8 +1092,13 @@ function drawSpendSheet(){
 
   const grab = ()=>{
     const a = document.getElementById("spAmount"), s = document.getElementById("spShop");
+    const o = document.getElementById("spShopOther");
     if(a) spendDraft.amount = a.value;
-    if(s) spendDraft.shop = s.value;
+    if(s){
+      const other = s.value === "Other";
+      if(o) o.style.display = other ? "" : "none";
+      spendDraft.shop = other ? ((o && o.value.trim()) || "Other") : s.value;
+    }
     modal.querySelectorAll("[data-sec]").forEach(el=>{
       const v = el.value.trim();
       if(v === "") delete spendDraft.sections[el.dataset.sec];
@@ -1014,7 +1108,7 @@ function drawSpendSheet(){
   /* Update the running total in place rather than redrawing — a redraw
      would yank the keyboard away mid-entry. */
   const refresh = ()=>{ grab(); const el = document.getElementById("secSum"); if(el) el.innerHTML = secSummary(); };
-  modal.querySelectorAll("#spAmount,#spShop,[data-sec]").forEach(el=>{
+  modal.querySelectorAll("#spAmount,#spShop,#spShopOther,[data-sec]").forEach(el=>{
     el.addEventListener("input", refresh);
     el.addEventListener("change", refresh);
   });
@@ -1636,7 +1730,9 @@ function openHelp(){
   <div class="helpsec">
     <h3>Tracking what you spend</h3>
     <p>The <b>Spend</b> tab keeps a note of what the shopping actually costs. After a shop, tap <b>Add what you spent</b>, put in the receipt total and optionally which shop. You can add more than one for a week — a big shop and a top-up later on both count towards that week.</p>
-    <p>You get this week's figure, your weekly average, and a bar per week going back. Tap a bar to see that week. A week you didn't record shows as a gap rather than a zero, and the average only counts weeks you actually entered, so a missed week doesn't flatter the number.</p>
+    <p><b>Nipping to the shops.</b> The <b>Quick add</b> row at the top is for the three-things-on-the-way-home trip: pick the shop from the list, type the amount, tap Add. It goes straight onto this week's total. The shop stays selected, so a second trip is two taps.</p>
+    <p><b>Weekly or monthly.</b> The buttons above the chart switch between the two. A week belongs to whichever month its Monday falls in, so a week straddling the end of a month is counted once, in one place, rather than split in half.</p>
+    <p>You get this week's or this month's figure, the matching average, and a bar for each. Tap a bar to see that one. A week you didn't record shows as a gap rather than a zero, and the average only counts what you actually entered, so a missed week doesn't flatter the number.</p>
     <p><b>The breakdown is optional.</b> Inside the receipt form there's a section you can open to split the total by aisle — Produce, Meat &amp; Fish and so on, straight off the receipt. Fill in as much or as little as you like; whatever's left over is shown as "unassigned" rather than quietly absorbed. Most weeks the total on its own is plenty.</p>
     <p><b>Currencies.</b> Each receipt records what it was actually rung up in — <b>QAR</b> or <b>GBP</b> — with a toggle at the top of the form. The Spend tab reports everything in one currency, QAR unless you change it under gear → <b>Currency</b>. Anything paid in the other one is converted at a rate <b>you set</b>, so it never changes behind your back or depends on the network. When something has been converted the app says so, and the week's detail still shows what you actually handed over.</p>
     <p class="q">Spending syncs between you like everything else, so whoever does the shop can put it in.</p>
@@ -1723,7 +1819,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
   if(!t) return;
 
   // ---- cook along ----
@@ -1759,6 +1855,7 @@ document.addEventListener("click", e=>{
                             servings:serv, order:Date.now(), frozen:frozen});
     closeModal(); render(); return;
   }
+  if(t.dataset.spmode){ spendMode = t.dataset.spmode; spendWeekSel = null; renderSpend(); return; }
   if(t.dataset.spcur){
     if(spendDraft.grab) spendDraft.grab();
     spendDraft.cur = t.dataset.spcur; drawSpendSheet(); return;
@@ -1828,6 +1925,7 @@ document.addEventListener("click", e=>{
       setTimeout(()=>location.reload(true), 700);
     })();
   }
+  else if(act==="quickadd"){ quickAdd(); }
   else if(act==="money"){ closeMenu(); openMoney(); }
   else if(act==="savemoney"){
     const picked = modal.querySelector("[data-setcur].on");
