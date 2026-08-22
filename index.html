@@ -241,6 +241,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 @media (prefers-color-scheme:dark){.viz-root{--chart:#d9713d;--chart-soft:#3a251a;--grid:#352d25}}
 .seg{border:1px solid var(--line);background:var(--card);font-weight:650}
 .seg.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.wkr{display:block;font-size:11px;font-weight:500;opacity:.75;margin-top:2px}
 .quickadd{padding:12px 13px}
 .hero{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .hero .big{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1}
@@ -323,12 +324,12 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.20.2";
+const APP_VERSION = "2026.08.21";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
 const UNITS  = ["","g","kg","ml","l","tsp","tbsp","clove","can","pack","bunch","handful","slice"];
-const DAYNAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DAYNAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const SLOTS = ["lunch","dinner","batch"];
 const SLOT_LABEL = { lunch:"Lunch", dinner:"Dinner", batch:"Batch cook" };
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -473,8 +474,8 @@ async function sync(quiet){
     await pull();
     setSync("ok");
     // First run for a household writes the recipes and the rotation — redraw so they show.
-    const wroteA = ensureRecipes(), wroteB = ensureRotation();
-    if(wroteA || wroteB) render();
+    const wroteA = migrateWeekStart(), wroteB = ensureRecipes(), wroteC = ensureRotation();
+    if(wroteA || wroteB || wroteC) render();
   }catch(e){
     // A flat "no internet" isn't a fault worth alarming anyone about.
     setSync(navigator.onLine ? "err" : "offline", e.message);
@@ -546,12 +547,13 @@ function readInvite(){
 function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function parseISO(s){ const p=s.split("-").map(Number); return new Date(p[0],p[1]-1,p[2]); }
 function addDays(d,n){ const x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
-function mondayOf(d){ const x=new Date(d.getTime()); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); x.setHours(0,0,0,0); return x; }
+/* Weeks run Sunday to Saturday. */
+function weekStartOf(d){ const x=new Date(d.getTime()); x.setDate(x.getDate()-x.getDay()); x.setHours(0,0,0,0); return x; }
 function fmtShort(d){ return d.getDate()+" "+MONTHS[d.getMonth()]; }
 function weekDates(w){ const m=parseISO(w); return Array.from({length:7},(_,i)=>addDays(m,i)); }
 
 let tab="plan";
-let week = iso(mondayOf(new Date()));
+let week = iso(weekStartOf(new Date()));
 let recipeSearch="";
 
 /* =========================================================
@@ -688,7 +690,7 @@ function render(){
   else renderShopping();
 }
 function weekNav(){
-  const d=weekDates(week), thisWeek=iso(mondayOf(new Date()));
+  const d=weekDates(week), thisWeek=iso(weekStartOf(new Date()));
   const rel=Math.round((parseISO(week)-parseISO(thisWeek))/(7*864e5));
   const relTxt = rel===0?"This week":rel===1?"Next week":rel===-1?"Last week":(rel>0?"In "+rel+" weeks":Math.abs(rel)+" weeks ago");
   return '<div class="weeknav">'
@@ -787,8 +789,28 @@ const SHOPS = ["LuLu","Food World","Carrefour","Monoprix","Spar","Other"];
 let spendWeekSel = null;     // week or month highlighted on the chart
 let spendMode = "week";      // week | month
 let quickShop = SHOPS[0], quickAmt = "";   // kept across redraws so typing survives
+/* You shop for the week ahead at the weekend, so on Friday and Saturday the
+   forms open on next week. Always shown, never silent. */
+function defaultSpendWeek(){
+  const now = new Date(), dow = now.getDay();        // 5 = Fri, 6 = Sat
+  const start = weekStartOf(now);
+  return iso(dow >= 5 ? addDays(start, 7) : start);
+}
+let quickWeek = defaultSpendWeek();
+function weekChooserHTML(sel, attr){
+  const thisW = iso(weekStartOf(new Date())), nextW = iso(addDays(parseISO(thisW), 7));
+  const range = w => { const d = weekDates(w); return fmtShort(d[0])+" – "+fmtShort(d[6]); };
+  const other = (sel !== thisW && sel !== nextW);
+  return '<div class="row" style="gap:8px">'
+    + '<button class="btn sm seg'+(sel===thisW?" on":"")+'" '+attr+'="'+thisW+'" style="flex:1">This week'
+      + '<span class="wkr">'+range(thisW)+'</span></button>'
+    + '<button class="btn sm seg'+(sel===nextW?" on":"")+'" '+attr+'="'+nextW+'" style="flex:1">Next week'
+      + '<span class="wkr">'+range(nextW)+'</span></button>'
+    + (other ? '<button class="btn sm seg on" '+attr+'="'+sel+'" style="flex:1">Other<span class="wkr">'+range(sel)+'</span></button>' : "")
+    + '</div>';
+}
 
-const monthKey   = w => w.slice(0,7);                       // the week's Monday decides its month
+const monthKey   = w => w.slice(0,7);                       // the week's first day decides its month
 const monthLabel = k => MONTHS[Number(k.slice(5,7))-1] + " " + k.slice(0,4);
 
 function spendEntries(w){ return all("spend").filter(s=>s.doc.week===w).sort((a,b)=>(a.doc.at||0)-(b.doc.at||0)); }
@@ -913,8 +935,9 @@ function spendChart(series, avg){
 /* The nip-to-the-shops row: pick the shop, type the amount, done. */
 function quickAddHTML(){
   return '<div class="card quickadd">'
-    + '<div class="small muted" style="margin-bottom:8px">Quick add — a top-up shop this week</div>'
-    + '<div class="row" style="gap:8px">'
+    + '<div class="small muted" style="margin-bottom:8px">Quick add — a shop you\'ve just done</div>'
+    + weekChooserHTML(quickWeek, "data-qweek")
+    + '<div class="row" style="gap:8px;margin-top:10px">'
     + '<select id="qShop" style="flex:1.2">'+SHOPS.map(s=>'<option'+(s===quickShop?" selected":"")+'>'+s+'</option>').join("")+'</select>'
     + '<input type="number" step="0.01" inputmode="decimal" id="qAmt" placeholder="'+esc(curSym().trim())+' amount" value="'+esc(quickAmt)+'" style="flex:1">'
     + '<button class="btn primary" data-act="quickadd">Add</button>'
@@ -929,12 +952,12 @@ function quickAdd(){
   const s = document.getElementById("qShop"), a = document.getElementById("qAmt");
   const amt = Number(a && a.value);
   if(!amt || amt<=0){ toast("Put in an amount"); return; }
-  const w = iso(mondayOf(new Date()));
-  put("spend", uid("sp-"), { week:w, amount:Math.round(amt*100)/100, shop:(s&&s.value)||"Other",
+  put("spend", uid("sp-"), { week:quickWeek, amount:Math.round(amt*100)/100, shop:(s&&s.value)||"Other",
                              cur:curCode(), at:Date.now(), sections:{} });
   quickAmt = ""; spendWeekSel = null;
   renderSpend();
-  toast(money(amt)+" at "+((s&&s.value)||"the shops"));
+  const wl = quickWeek === iso(weekStartOf(new Date())) ? "this week" : "week of "+fmtShort(parseISO(quickWeek));
+  toast(money(amt)+" at "+((s&&s.value)||"the shops")+" · "+wl);
 }
 
 function renderSpend(){
@@ -950,7 +973,7 @@ function renderSpend(){
     return;
   }
 
-  const thisWeek = iso(mondayOf(new Date()));
+  const thisWeek = iso(weekStartOf(new Date()));
   const thisMonth = thisWeek.slice(0,7);
   const recorded = monthly ? spendMonths().map(monthTotal) : weeks.map(spendTotal);
   const avg = recorded.length ? recorded.reduce((a,b)=>a+b,0)/recorded.length : 0;
@@ -1040,7 +1063,7 @@ function openSpend(id){
   spendDraft = ex
     ? { id:ex.id, week:ex.doc.week, amount:ex.doc.amount, shop:ex.doc.shop||"",
         cur:entryCur(ex.doc), sections:Object.assign({}, ex.doc.sections||{}) }
-    : { id:null, week:iso(mondayOf(new Date())), amount:"", shop:"",
+    : { id:null, week:defaultSpendWeek(), amount:"", shop:"",
         cur:curCode(), sections:{} };
   drawSpendSheet();
 }
@@ -1070,9 +1093,10 @@ function drawSpendSheet(){
     + (d.shop && SHOPS.indexOf(d.shop)<0
         ? '<input type="text" id="spShopOther" placeholder="Which shop?" value="'+esc(d.shop)+'" style="margin-top:8px">'
         : '<input type="text" id="spShopOther" placeholder="Which shop?" style="margin-top:8px;display:none">')
-    + '<label class="f" style="margin-top:14px">Which week</label>'
-    + '<div class="weeknav" style="margin-bottom:6px"><button class="arrow" data-spweek="-1">‹</button>'
-    + '<div class="wlabel">'+fmtShort(wd[0])+' – '+fmtShort(wd[6])+'</div>'
+    + '<label class="f" style="margin-top:14px">Which week is this shop for</label>'
+    + weekChooserHTML(d.week, "data-fweek")
+    + '<div class="weeknav" style="margin:8px 0 0"><button class="arrow" data-spweek="-1">‹</button>'
+    + '<div class="wlabel" style="font-size:13px;font-weight:600">'+fmtShort(wd[0])+' – '+fmtShort(wd[6])+'</div>'
     + '<button class="arrow" data-spweek="1">›</button></div>';
 
   h += '<details style="margin-top:16px"'+(Object.keys(d.sections).length?" open":"")+'>'
@@ -1405,7 +1429,7 @@ function openPicker(dateISO, slot){
   pickTarget={dateISO,slot};
   const d=parseISO(dateISO);
   const isBatch = slot==="batch";
-  sheet(DAYNAMES[(d.getDay()+6)%7]+" · "+SLOT_LABEL[slot],
+  sheet(DAYNAMES[d.getDay()]+" · "+SLOT_LABEL[slot],
     '<input type="search" id="psearch" placeholder="Search…" style="margin-bottom:12px">'
     + '<div class="row wrap small muted" style="margin-bottom:12px;gap:10px">'
     + '<span class="row" style="gap:6px">Servings<input type="number" id="pserv" min="1" max="20" value="'+(isBatch?4:household())+'" style="width:70px"></span>'
@@ -1681,6 +1705,7 @@ function openHelp(){
 
   <div class="helpsec">
     <h3>Planning a week</h3>
+    <p>Weeks run <b>Sunday to Saturday</b>, so the plan, the shopping list and the spend tracking all line up with the local week.</p>
     <p>Tap <b>+ Add</b> on any lunch or dinner slot and pick a recipe. Before you pick, set <b>Servings</b> — that number drives everything downstream, so if you're batch cooking a chilli for six, say six and the shopping list buys for six.</p>
     <p>You can put more than one thing in a slot, which is handy for a main plus a side. Tap a meal's name to see the recipe, or the <b>×</b> to remove it.</p>
     <p><b>Copy last week</b> lifts the whole of the previous week across, which is the quickest way to run a rolling roster — copy, then swap out the two or three things you're bored of.</p>
@@ -1704,7 +1729,7 @@ function openHelp(){
 
   <div class="helpsec">
     <h3>Your three-week rotation</h3>
-    <p>Gear → <b>Meal rotation</b> shows the three-week cycle the app was set up with, and lets you lay it out again from this Monday or the next. It fills six weeks at a time, which is two full cycles.</p>
+    <p>Gear → <b>Meal rotation</b> shows the three-week cycle the app was set up with, and lets you lay it out again from this week or the next. It fills six weeks at a time, which is two full cycles.</p>
     <p>Nothing runs automatically after that first fill, so any week you change stays changed. When you get near the end, open the rotation and refill — it writes over the weeks ahead, so do it from a week you haven't customised.</p>
   </div>
 
@@ -1747,8 +1772,9 @@ function openHelp(){
   <div class="helpsec">
     <h3>Tracking what you spend</h3>
     <p>The <b>Spend</b> tab keeps a note of what the shopping actually costs. After a shop, tap <b>Add what you spent</b>, put in the receipt total and optionally which shop. You can add more than one for a week — a big shop and a top-up later on both count towards that week.</p>
-    <p><b>Nipping to the shops.</b> The <b>Quick add</b> row at the top is for the three-things-on-the-way-home trip: pick the shop from the list, type the amount, tap Add. It goes straight onto this week's total. The shop stays selected, so a second trip is two taps.</p>
-    <p><b>Weekly or monthly.</b> The buttons above the chart switch between the two. A week belongs to whichever month its Monday falls in, so a week straddling the end of a month is counted once, in one place, rather than split in half.</p>
+    <p><b>Nipping to the shops.</b> The <b>Quick add</b> row at the top is for the three-things-on-the-way-home trip: pick the shop from the list, type the amount, tap Add. The shop stays selected, so a second trip is two taps.</p>
+    <p><b>Which week a shop is for.</b> Both the quick add and the full receipt form have a <b>This week / Next week</b> choice with the dates on it. Because you shop for the week ahead at the weekend, it opens on <b>next week</b> if it's Friday or Saturday, and on this week the rest of the time. It's always shown, so it's never guessing behind your back, and the arrows underneath the full form reach any other week.</p>
+    <p><b>Weekly or monthly.</b> The buttons above the chart switch between the two. A week belongs to whichever month its first day falls in, so a week straddling the end of a month is counted once, in one place, rather than split in half.</p>
     <p>You get this week's or this month's figure, the matching average, and a bar for each. Tap a bar to see that one. A week you didn't record shows as a gap rather than a zero, and the average only counts what you actually entered, so a missed week doesn't flatter the number.</p>
     <p><b>The breakdown is optional.</b> Inside the receipt form there's a section you can open to split the total by aisle — Produce, Meat &amp; Fish and so on, straight off the receipt. Fill in as much or as little as you like; whatever's left over is shown as "unassigned" rather than quietly absorbed. Most weeks the total on its own is plenty.</p>
     <p><b>Currencies.</b> Each receipt records what it was actually rung up in — <b>QAR</b> or <b>GBP</b> — with a toggle at the top of the form. The Spend tab reports everything in one currency, QAR unless you change it under gear → <b>Currency</b>. Anything paid in the other one is converted at a rate <b>you set</b>, so it never changes behind your back or depends on the network. When something has been converted the app says so, and the week's detail still shows what you actually handed over.</p>
@@ -1836,7 +1862,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-qweek],[data-fweek],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
   if(!t) return;
 
   // ---- cook along ----
@@ -1859,7 +1885,7 @@ document.addEventListener("click", e=>{
 
   if(t.dataset.week!==undefined){
     const n=Number(t.dataset.week);
-    week = n===0 ? iso(mondayOf(new Date())) : iso(addDays(parseISO(week), n*7));
+    week = n===0 ? iso(weekStartOf(new Date())) : iso(addDays(parseISO(week), n*7));
     render(); window.scrollTo(0,0); return;
   }
   if(t.dataset.add){ const [d,s]=t.dataset.add.split("|"); openPicker(d,s); return; }
@@ -1871,6 +1897,11 @@ document.addEventListener("click", e=>{
     put("meal", uid("m-"), {date:pickTarget.dateISO, slot:pickTarget.slot, recipeId:t.dataset.pick,
                             servings:serv, order:Date.now(), frozen:frozen});
     closeModal(); render(); return;
+  }
+  if(t.dataset.qweek){ quickWeek = t.dataset.qweek; renderSpend(); return; }
+  if(t.dataset.fweek){
+    if(spendDraft.grab) spendDraft.grab();
+    spendDraft.week = t.dataset.fweek; drawSpendSheet(); return;
   }
   if(t.dataset.spmode){ spendMode = t.dataset.spmode; spendWeekSel = null; renderSpend(); return; }
   if(t.dataset.spcur){
@@ -1965,14 +1996,14 @@ document.addEventListener("click", e=>{
   else if(act==="addbulk"){ addBulkItems(); }
   else if(act==="rotation"){ closeMenu(); openRotation(); }
   else if(act==="refillnow" || act==="refillnext"){
-    const anchor = act==="refillnow" ? iso(mondayOf(new Date())) : iso(addDays(mondayOf(new Date()),7));
+    const anchor = act==="refillnow" ? iso(weekStartOf(new Date())) : iso(addDays(weekStartOf(new Date()),7));
     const n = fillRotation(anchor, ROTATION_WEEKS);
     closeModal(); week = anchor; tab="plan"; render(); window.scrollTo(0,0);
     toast("Filled "+ROTATION_WEEKS+" weeks — "+n+" meals");
   }
   else if(act==="clearrotation"){
     const v = get("setting:rotation");
-    const anchor = v ? v.doc.anchor : iso(mondayOf(new Date()));
+    const anchor = v ? v.doc.anchor : iso(weekStartOf(new Date()));
     if(confirm("Clear every planned meal for those "+ROTATION_WEEKS+" weeks?")){
       const n = clearRotation(anchor, ROTATION_WEEKS);
       closeModal(); render(); toast("Cleared "+n+" meals");
@@ -2043,7 +2074,7 @@ document.addEventListener("click", e=>{
     if(confirm("Erase everything on this device? If sharing is on, it will download again from the shared copy.")){
       S={items:{},pending:{},watermark:null,seeded:false};
       lsSet(DATA_KEY, JSON.stringify(S));
-      if(connected()) sync().then(()=>{ ensureRecipes(); ensureRotation(); render(); }); else { ensureRecipes(); ensureRotation(); render(); }
+      if(connected()) sync().then(()=>{ migrateWeekStart(); ensureRecipes(); ensureRotation(); render(); }); else { migrateWeekStart(); ensureRecipes(); ensureRotation(); render(); }
     }
     closeMenu();
   }
@@ -3119,7 +3150,7 @@ const ROTATION = [
     [6,"batch","r-taco-beef-sauce",4,false] ]
 ];
 const ROTATION_WEEKS = 6;
-const ROTATION_SET = 1;
+const ROTATION_SET = 2;   // 2 = re-laid onto Sunday-start weeks
 
 /* Deterministic ids, so if both phones fill the same week they land on the
    same records rather than doubling everything up. */
@@ -3147,15 +3178,52 @@ function clearRotation(anchorISO, weeks){
   }
   return n;
 }
+/* Weeks used to start on Monday. Everything keyed by week — shopping ticks,
+   hand-added items, quantity tweaks, receipts — is moved onto the Sunday that
+   now begins that same week, so no history is stranded. Runs once. */
+function migrateWeekStart(){
+  const v = get("setting:weekstart");
+  if(v && (v.doc.v||0) >= 1) return false;
+  const shift = w => iso(weekStartOf(parseISO(w)));
+  let moved = 0;
+  ["spend","extra"].forEach(k=>{
+    all(k).forEach(i=>{
+      const nw = shift(i.doc.week);
+      if(nw !== i.doc.week){ put(k, i.id, Object.assign({}, i.doc, {week:nw})); moved++; }
+    });
+  });
+  const PREFIX = { tick:"k:", hide:"h:", adj:"a:" };
+  Object.keys(PREFIX).forEach(k=>{
+    all(k).forEach(i=>{
+      const nw = shift(i.doc.week);
+      if(nw === i.doc.week) return;
+      put(k, PREFIX[k] + nw + ":" + i.doc.key, Object.assign({}, i.doc, {week:nw}));
+      drop(i.id); moved++;
+    });
+  });
+  put("setting","setting:weekstart",{v:1});
+  return moved > 0 || true;
+}
+
 function ensureRotation(){
   const v = get("setting:rotation");
-  if(v && (v.doc.v||0) >= ROTATION_SET) return false;
-  fillRotation(iso(mondayOf(new Date())), ROTATION_WEEKS);
+  const at = v ? (v.doc.v||0) : 0;
+  if(at >= ROTATION_SET) return false;
+  /* Re-laying the cycle onto Sunday-start weeks: clear what a previous fill
+     put down, but leave anything added by hand (those ids don't start p-). */
+  if(at > 0 && v.doc.anchor){
+    const a = parseISO(v.doc.anchor);
+    for(let d = -7; d < ((v.doc.weeks||ROTATION_WEEKS)+1)*7; d++){
+      const ds = iso(addDays(a,d));
+      SLOTS.forEach(slot=>mealsOn(ds,slot).forEach(m=>{ if(/^p-/.test(m.id)) drop(m.id); }));
+    }
+  }
+  fillRotation(iso(weekStartOf(new Date())), ROTATION_WEEKS);
   return true;
 }
 function openRotation(){
   const v = get("setting:rotation");
-  const anchor = v ? v.doc.anchor : iso(mondayOf(new Date()));
+  const anchor = v ? v.doc.anchor : iso(weekStartOf(new Date()));
   const a = parseISO(anchor);
   let h = '<p class="small muted" style="margin:0 0 16px">Your three-week cycle, laid out '
     + ROTATION_WEEKS+' weeks ahead from '+fmtShort(a)+'. Change any week however you like — '
@@ -3175,7 +3243,7 @@ function openRotation(){
   h += '<div class="note" style="margin:20px 0 14px">❄ marks a meal you eat from the freezer, so it adds nothing to that week\'s shopping list. Batch cook days buy for the whole batch.</div>'
     + '<div class="row wrap" style="gap:8px">'
     + '<button class="btn primary" data-act="refillnow">Refill from this week</button>'
-    + '<button class="btn" data-act="refillnext">Refill from next Monday</button></div>'
+    + '<button class="btn" data-act="refillnext">Refill from next Sunday</button></div>'
     + '<div class="row" style="margin-top:10px"><button class="btn sm danger" data-act="clearrotation">Clear these '+ROTATION_WEEKS+' weeks</button></div>';
   sheet("Meal rotation", h);
 }
@@ -3189,7 +3257,7 @@ if(connected()){
   startSync();                      // seeds after first successful pull if empty
   if(invited) setTimeout(()=>toast("Connected to your shared plan"), 600);
 }else{
-  ensureRecipes(); ensureRotation();
+  migrateWeekStart(); ensureRecipes(); ensureRotation();
   setSync("off");
 }
 render();
