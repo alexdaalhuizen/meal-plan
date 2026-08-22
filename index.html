@@ -323,7 +323,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.20";
+const APP_VERSION = "2026.08.20.2";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -1179,6 +1179,11 @@ function shoppingRows(w){
   return rows;
 }
 
+/* Ticked things drop out of the list so what's left is what you still need.
+   Kept per device — it's a view preference, not something to impose on her. */
+const PICKED_KEY = "mealplan.showpicked";
+let showPicked = lsGet(PICKED_KEY) === "1";
+
 function renderShopping(){
   const rows = shoppingRows(week), meals = weekMeals(week);
   const addBtn = '<button class="btn primary" data-act="additems" style="width:100%;margin-top:18px;padding:11px">+ Add items to the list</button>';
@@ -1192,15 +1197,26 @@ function renderShopping(){
   }
 
   const doneN = rows.filter(r=>r.done).length;
+  const visible = showPicked ? rows : rows.filter(r=>!r.done);
+
   html += '<div class="row wrap small muted" style="margin:-4px 4px 10px">'
     + '<span>'+doneN+" of "+rows.length+' picked up · '+meals.length+" "+plural(meals.length,"meal")+'</span>'
     + '<div class="sp"></div>'
     + '<span class="row" style="gap:2px">'
+    + (doneN ? '<button class="btn sm ghost" data-act="togglepicked">'+(showPicked?"Hide picked up":"Show all")+'</button>' : "")
     + '<button class="btn sm ghost" data-act="copylist">Copy as text</button>'
     + '<button class="btn sm ghost" data-act="resetlist">Reset ticks</button></span></div>';
 
+  if(!visible.length){
+    view.innerHTML = html
+      + '<div class="card empty">Everything ticked off.<br><span class="small">'+doneN+' '+plural(doneN,"item")+' picked up.</span>'
+      + '<div style="margin-top:14px"><button class="btn sm" data-act="togglepicked">Show the list again</button></div></div>'
+      + addBtn;
+    return;
+  }
+
   let cur=null, body="";
-  rows.forEach(r=>{
+  visible.forEach(r=>{
     if(r.aisle!==cur){ if(cur!==null) body+='</div>'; cur=r.aisle; body+='<h3>'+esc(cur)+'</h3><div class="card">'; }
     const tick = r.kind==="calc" ? 'data-tick="'+esc(r.key)+'"' : 'data-tickx="'+r.id+'"';
     const del  = r.kind==="calc" ? 'data-hide="'+esc(r.key)+'" title="Already have it"' : 'data-delx="'+r.id+'"';
@@ -1697,7 +1713,8 @@ function openHelp(){
     <p>Every ingredient of every meal that week is scaled by servings, then identical ingredients are merged into one line. A recipe serving four, planned for two, contributes half of everything.</p>
     <p>Units are converted before merging, so a tablespoon in one recipe and a teaspoon in another add up properly, and grams roll into kilograms once they pass a thousand. Anything you can only buy whole — tins, packs, avocados — rounds up, because half a tin isn't a thing.</p>
     <p>Under each line it says which meals it's for. That's how you tell whether the 8 cloves of garlic are worth buying two bulbs for.</p>
-    <p>Tap the circle to tick something off. Tap the small <b>×</b> to remove a line entirely — that's for things you've already got in. <b>Reset ticks</b> puts everything back, and <b>Copy as text</b> gives you the whole list to paste into a message.</p>
+    <p>Tap the circle to tick something off and it <b>drops out of the list</b>, so what's left on screen is what you've still got to find. The counter at the top keeps score. <b>Show all</b> brings the ticked ones back into view, struck through and in their proper places, for when you want to check whether something was on the list at all; <b>Hide picked up</b> puts them away again. Unticking anything returns it to the list. The app remembers which way you like it, and it's per phone — you can be hiding while she isn't.</p>
+    <p>Tap the small <b>×</b> to remove a line entirely — that's for things you've already got in. <b>Reset ticks</b> puts everything back, and <b>Copy as text</b> gives you the whole list, ticked items included, to paste into a message.</p>
     <p><b>Buying more than the recipes need.</b> Tap the <u>quantity</u> on any line and you can set what you actually want to buy — an extra bag of carrots for snacking, say. The line then reads in orange and shows the split, like "1 for meals · +3 added". Grams and millilitres step in fifties, everything else one at a time, and you can type an exact number instead. <b>Back to recipe amount</b> undoes it. Adjustments belong to that week only, so they don't follow you around.</p>
     <p class="q">Lines with no quantity, like fresh herbs, show a <b>+</b> instead — tap it to give them one.</p>
     <p class="q">Ticks are per week, so last week's shopping doesn't affect this week's.</p>
@@ -1903,6 +1920,10 @@ document.addEventListener("click", e=>{
       put("meal", uid("m-"), Object.assign({}, m.doc, {date: iso(addDays(parseISO(week), offset)), order:Date.now()+offset}));
     });
     render(); toast(src.length?("Copied "+src.length+" "+plural(src.length,"meal")):"Last week was empty");
+  }
+  else if(act==="togglepicked"){
+    showPicked = !showPicked; lsSet(PICKED_KEY, showPicked ? "1" : "");
+    renderShopping(); window.scrollTo(0,0);
   }
   else if(act==="copylist") copyText(listAsText(), "List copied");
   else if(act==="resetlist"){
