@@ -200,6 +200,9 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 .step .n{width:23px;height:23px;border-radius:99px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:800;display:grid;place-items:center;flex:none;margin-top:2px}
 .step .b{flex:1}
 .note{background:var(--accent-soft);border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.5}
+.pbox{background:var(--accent-soft);border-radius:12px;padding:12px 13px 6px;margin-bottom:18px;font-size:13.5px;line-height:1.5}
+.pnote{position:relative;padding:8px 26px 8px 0;border-top:1px solid rgba(128,128,128,.22);margin-top:8px}
+.pdis{position:absolute;top:6px;right:-4px;background:none;border:0;color:var(--muted);font-size:19px;line-height:1;padding:2px 6px;cursor:pointer}
 
 /* ---------- cook along ---------- */
 .cookwrap{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
@@ -324,11 +327,11 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.22";
+const APP_VERSION = "2026.08.28";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
-const UNITS  = ["","g","kg","ml","l","tsp","tbsp","clove","can","pack","bunch","handful","slice"];
+const UNITS  = ["","g","kg","ml","l","tsp","tbsp","clove","can","pack","bunch","handful","slice","cup","pinch","sprig"];
 const DAYNAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const SLOTS = ["lunch","dinner","batch"];
 const SLOT_LABEL = { lunch:"Lunch", dinner:"Dinner", batch:"Batch cook" };
@@ -741,7 +744,8 @@ function renderRecipes(){
   const list = recipes().filter(r=>!q || r.doc.name.toLowerCase().includes(q) || (r.doc.tags||[]).join(" ").toLowerCase().includes(q));
   let html = '<div class="row" style="margin-bottom:14px;gap:8px">'
     + '<input type="search" id="rsearch" placeholder="Search recipes…" value="'+esc(recipeSearch)+'">'
-    + '<button class="btn primary" data-act="newrecipe" style="white-space:nowrap">+ New</button></div>';
+    + '<button class="btn primary" data-act="newrecipe" style="white-space:nowrap">+ New</button></div>'
+    + '<div class="row" style="margin-bottom:14px"><button class="btn" data-act="pasterecipe" style="width:100%">📋  Paste a recipe</button></div>';
   if(!list.length){
     html += '<div class="card empty">No recipes'+(q?" match “"+esc(recipeSearch)+"”":" yet")+'.</div>';
   }else{
@@ -1419,6 +1423,7 @@ function openRecipe(id){
 
   h += '<div class="row wrap" style="margin-top:22px;gap:8px">'
     + '<button class="btn" data-act="editrecipe" data-id="'+r.id+'">Edit recipe</button>'
+    + '<button class="btn" data-act="pasterecipe" data-id="'+r.id+'">Paste over</button>'
     + '<div class="sp"></div><button class="btn danger" data-act="delrecipe" data-id="'+r.id+'">Delete</button></div>';
   sheet(esc(d.name), h,
     '<button class="btn sm" data-act="editrecipe" data-id="'+r.id+'">Edit</button>');
@@ -1448,8 +1453,9 @@ function openPicker(dateISO, slot){
   document.getElementById("psearch").addEventListener("input", draw);
 }
 
-let draft=null, draftId=null;
+let draft=null, draftId=null, parseNotes=[];
 function openEditor(id, focus){
+  parseNotes=[];
   if(id){ draftId=id; draft=JSON.parse(JSON.stringify(recipeById(id).doc)); }
   else{ draftId=null; draft={name:"",servings:2,prep:10,cook:20,time:30,batch:false,tags:[],
         ingredients:[{qty:"",unit:"",item:"",aisle:"Produce"}],steps:[{text:"",mins:""}]}; }
@@ -1521,6 +1527,14 @@ function drawEditor(){
 
   h += '<div class="row"><button class="btn primary" data-act="saverecipe">Save recipe</button><button class="btn ghost" data-close>Cancel</button></div>'
     + '<p class="tiny muted" style="margin-top:12px">Minutes on a step are optional — they power the cook-along timers.</p>';
+
+  if(parseNotes.length){                       // what the paste reader guessed at
+    h = '<div class="pbox"><b>Read from your text — worth a check</b>'
+      + parseNotes.map((n,i)=>'<div class="pnote">'+esc(n.msg)
+          + (n.add?' <button class="btn sm" data-pfix="'+i+'">Add it</button>':'')
+          + '<button class="pdis" data-pdis="'+i+'" aria-label="Dismiss">×</button></div>').join('')
+      + '</div>' + h;
+  }
   sheet(draftId?"Edit recipe":"New recipe", h);
 
   const NUMS = ["servings","time","prep","cook"];
@@ -1559,6 +1573,512 @@ function saveRecipe(){
   draft.steps = draft.steps.filter(s=>s.text.trim());
   put("recipe", draftId || uid("r-"), draft);
   closeModal(); render(); toast("Saved");
+}
+
+/* =========================================================
+   7b. Paste a recipe
+   Turns a plain-text recipe into a real one — quantities,
+   units, aisles, steps and cook-along timers. It is guessing
+   throughout, so nothing is saved until you've looked it over.
+   ========================================================= */
+
+const FRACS = {"½":.5,"¼":.25,"¾":.75,"⅓":1/3,"⅔":2/3,"⅕":.2,"⅙":1/6,"⅛":.125,"⅜":.375,"⅝":.625,"⅞":.875};
+const FRACSET = "½¼¾⅓⅔⅕⅙⅛⅜⅝⅞";
+
+/* Words people actually write, mapped to the units the app knows. */
+const UNIT_WORDS = {
+  g:"g", gs:"g", gr:"g", gm:"g", gms:"g", gram:"g", grams:"g", gramme:"g", grammes:"g",
+  kg:"kg", kgs:"kg", kilo:"kg", kilos:"kg", kilogram:"kg", kilograms:"kg",
+  ml:"ml", mls:"ml", millilitre:"ml", millilitres:"ml", milliliter:"ml", milliliters:"ml",
+  l:"l", ltr:"l", litre:"l", litres:"l", liter:"l", liters:"l",
+  tsp:"tsp", tsps:"tsp", teaspoon:"tsp", teaspoons:"tsp",
+  tbsp:"tbsp", tbsps:"tbsp", tbs:"tbsp", tablespoon:"tbsp", tablespoons:"tbsp", dsp:"tbsp",
+  clove:"clove", cloves:"clove",
+  can:"can", cans:"can", tin:"can", tins:"can",
+  pack:"pack", packs:"pack", packet:"pack", packets:"pack", sachet:"pack", sachets:"pack", punnet:"pack", punnets:"pack",
+  bunch:"bunch", bunches:"bunch",
+  handful:"handful", handfuls:"handful",
+  slice:"slice", slices:"slice",
+  cup:"cup", cups:"cup",
+  pinch:"pinch", pinches:"pinch",
+  sprig:"sprig", sprigs:"sprig"
+};
+/* Imperial weights get converted into something the shopping list can add up. */
+const UNIT_CONVERT = { oz:[28.35,"g"], ozs:[28.35,"g"], ounce:[28.35,"g"], ounces:[28.35,"g"],
+                       lb:[453.6,"g"], lbs:[453.6,"g"], pound:[453.6,"g"], pounds:[453.6,"g"] };
+
+/* Aisle fallbacks. The recipe book you already have is consulted first —
+   these only cover things you've never cooked before. Longest phrase wins,
+   so "red pepper" beats "pepper". */
+const AISLE_HINTS_RAW = {
+  "chicken":"Meat & Fish","chicken breast":"Meat & Fish","chicken thigh":"Meat & Fish","beef":"Meat & Fish",
+  "beef mince":"Meat & Fish","mince":"Meat & Fish","pork":"Meat & Fish","lamb":"Meat & Fish","bacon":"Meat & Fish",
+  "sausage":"Meat & Fish","steak":"Meat & Fish","turkey":"Meat & Fish","ham":"Meat & Fish","chorizo":"Meat & Fish",
+  "pancetta":"Meat & Fish","salmon":"Meat & Fish","tuna":"Meat & Fish","cod":"Meat & Fish","haddock":"Meat & Fish",
+  "prawn":"Meat & Fish","shrimp":"Meat & Fish","anchovy":"Meat & Fish","mackerel":"Meat & Fish",
+  "milk":"Dairy & Eggs","butter":"Dairy & Eggs","cheese":"Dairy & Eggs","cheddar":"Dairy & Eggs",
+  "parmesan":"Dairy & Eggs","mozzarella":"Dairy & Eggs","feta":"Dairy & Eggs","halloumi":"Dairy & Eggs",
+  "yoghurt":"Dairy & Eggs","yogurt":"Dairy & Eggs","cream":"Dairy & Eggs","cream cheese":"Dairy & Eggs",
+  "creme fraiche":"Dairy & Eggs","crème fraîche":"Dairy & Eggs","soured cream":"Dairy & Eggs",
+  "double cream":"Dairy & Eggs","single cream":"Dairy & Eggs","egg":"Dairy & Eggs","mascarpone":"Dairy & Eggs",
+  "ricotta":"Dairy & Eggs",
+  "onion":"Produce","red onion":"Produce","spring onion":"Produce","shallot":"Produce","garlic":"Produce",
+  "potato":"Produce","sweet potato":"Produce","carrot":"Produce","tomato":"Produce","cherry tomato":"Produce",
+  "red pepper":"Produce","green pepper":"Produce","yellow pepper":"Produce","bell pepper":"Produce",
+  "courgette":"Produce","aubergine":"Produce","broccoli":"Produce","spinach":"Produce","lettuce":"Produce",
+  "cucumber":"Produce","celery":"Produce","mushroom":"Produce","lemon":"Produce","lime":"Produce",
+  "orange":"Produce","apple":"Produce","avocado":"Produce","ginger":"Produce","chilli":"Produce",
+  "coriander":"Produce","parsley":"Produce","basil":"Produce","mint":"Produce","dill":"Produce",
+  "green bean":"Produce","pea":"Produce","cabbage":"Produce","kale":"Produce","leek":"Produce",
+  "cauliflower":"Produce","squash":"Produce","rocket":"Produce","sweetcorn":"Produce",
+  "bread":"Bakery","roll":"Bakery","baguette":"Bakery","pitta":"Bakery","naan":"Bakery",
+  "tortilla":"Bakery","wrap":"Bakery","bun":"Bakery","ciabatta":"Bakery",
+  "chopped tomato":"Tins & Jars","tinned tomato":"Tins & Jars","passata":"Tins & Jars",
+  "tomato puree":"Tins & Jars","tomato purée":"Tins & Jars","sun-dried tomato":"Tins & Jars",
+  "coconut milk":"Tins & Jars","chickpea":"Tins & Jars","kidney bean":"Tins & Jars","black bean":"Tins & Jars",
+  "baked bean":"Tins & Jars","butter bean":"Tins & Jars","olive":"Tins & Jars","caper":"Tins & Jars",
+  "mustard":"Tins & Jars","dijon mustard":"Tins & Jars","mayonnaise":"Tins & Jars","ketchup":"Tins & Jars",
+  "honey":"Tins & Jars","jam":"Tins & Jars","peanut butter":"Tins & Jars","worcestershire sauce":"Tins & Jars",
+  "soy sauce":"Tins & Jars","fish sauce":"Tins & Jars","hoisin":"Tins & Jars","sriracha":"Tins & Jars",
+  "pasta":"Dry Goods","spaghetti":"Dry Goods","tagliatelle":"Dry Goods","penne":"Dry Goods",
+  "fusilli":"Dry Goods","linguine":"Dry Goods","macaroni":"Dry Goods","lasagne":"Dry Goods",
+  "rice":"Dry Goods","noodle":"Dry Goods","couscous":"Dry Goods","quinoa":"Dry Goods","lentil":"Dry Goods",
+  "flour":"Dry Goods","sugar":"Dry Goods","oat":"Dry Goods","breadcrumb":"Dry Goods","cornflour":"Dry Goods",
+  "oil":"Dry Goods","olive oil":"Dry Goods","vegetable oil":"Dry Goods","sesame oil":"Dry Goods",
+  "vinegar":"Dry Goods","balsamic vinegar":"Dry Goods","stock":"Dry Goods","chicken stock":"Dry Goods",
+  "beef stock":"Dry Goods","vegetable stock":"Dry Goods","stock cube":"Dry Goods","wine":"Dry Goods",
+  "salt":"Herbs & Spices","pepper":"Herbs & Spices","black pepper":"Herbs & Spices",
+  "white pepper":"Herbs & Spices","cayenne pepper":"Herbs & Spices","salt and pepper":"Herbs & Spices",
+  "paprika":"Herbs & Spices","smoked paprika":"Herbs & Spices","cumin":"Herbs & Spices",
+  "turmeric":"Herbs & Spices","cinnamon":"Herbs & Spices","oregano":"Herbs & Spices",
+  "thyme":"Herbs & Spices","rosemary":"Herbs & Spices","bay leaf":"Herbs & Spices",
+  "chilli flake":"Herbs & Spices","chilli powder":"Herbs & Spices","curry powder":"Herbs & Spices",
+  "garam masala":"Herbs & Spices","nutmeg":"Herbs & Spices","coriander seed":"Herbs & Spices",
+  "frozen pea":"Frozen","frozen sweetcorn":"Frozen","frozen spinach":"Frozen","ice":"Frozen",
+  "tissue":"Household","washing up liquid":"Household","bin bag":"Household","foil":"Household",
+  "cling film":"Household","kitchen roll":"Household","washing powder":"Household"
+};
+
+/* Brand names, so a pasted "Philadelphia Light" merges on the shopping list
+   with the "light cream cheese" your other recipes already ask for. */
+const BRANDS = [
+  [/\bphiladelphia\b/ig, "cream cheese"], [/\blurpak\b/ig, "butter"], [/\bkerrygold\b/ig, "butter"],
+  [/\bhellmann'?s\b/ig, "mayonnaise"], [/\bcathedral city\b/ig, "Cheddar"], [/\boxo\b/ig, "stock cube"],
+  [/\bknorr\b/ig, ""], [/\bheinz\b/ig, ""], [/\bbisto\b/ig, "gravy granules"], [/\bflora\b/ig, "margarine"]
+];
+const FAT_ADJ = /\b(?:extra light|semi[- ]skimmed|reduced[- ]fat|low[- ]fat|half[- ]fat|full[- ]fat|fat[- ]free|skimmed|light|lite)\b/ig;
+
+/* Ingredients so implicit they aren't worth flagging as missing. */
+const IMPLICIT = ["salt","pepper","black pepper","salt and pepper","water","oil","olive oil","ice"];
+
+function escRe(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function fmtQ(n){ return (Math.round(n*100)/100).toString().replace(/\.0+$/,""); }
+
+const QTY_RE = new RegExp("^(?:"
+  + "(\\d+(?:[.,]\\d+)?)\\s*(?:[-–—]|\\s+to\\s+)\\s*(\\d+(?:[.,]\\d+)?)"      // 2-3
+  + "|(\\d+)\\s+(\\d+)\\/(\\d+)"                                              // 1 1/2
+  + "|(\\d+)\\/(\\d+)"                                                        // 3/4
+  + "|(\\d+(?:[.,]\\d+)?)\\s*([" + FRACSET + "])"                             // 1½
+  + "|([" + FRACSET + "])"                                                    // ½
+  + "|(\\d+(?:[.,]\\d+)?)"                                                    // 200
+  + ")");
+
+function takeQty(s){
+  const t = String(s).trim();
+  const m = t.match(QTY_RE);
+  if(!m){
+    const a = t.match(/^(?:a|an)\s+/i);                 // "a handful of parsley"
+    if(a){
+      const rest = t.slice(a[0].length);
+      const w = (rest.split(/\s+/)[0]||"").toLowerCase().replace(/[^a-z]/g,"");
+      if(UNIT_WORDS[w]) return {qty:1, rest, note:""};
+    }
+    return {qty:null, rest:t, note:""};
+  }
+  const N = x => Number(String(x).replace(",", "."));
+  let qty, note = "";
+  if(m[1] != null && m[2] != null){ qty = N(m[2]); note = "range"; }
+  else if(m[3] != null) qty = N(m[3]) + N(m[4]) / N(m[5]);
+  else if(m[6] != null) qty = N(m[6]) / N(m[7]);
+  else if(m[8] != null) qty = N(m[8]) + FRACS[m[9]];
+  else if(m[10] != null) qty = FRACS[m[10]];
+  else qty = N(m[11]);
+  return {qty: Math.round(qty*1000)/1000, rest: t.slice(m[0].length).trim(), note};
+}
+
+function takeUnit(rest){
+  const words = String(rest).trim().split(/\s+/);
+  const w0 = (words[0]||"").toLowerCase().replace(/[^a-z]/g,"");
+  const w1 = (words[1]||"").toLowerCase().replace(/[^a-z]/g,"");
+  if(w0 === "fl" && w1 === "oz") return {unit:"ml", mult:28.4, rest:words.slice(2).join(" "), note:"fl oz converted to ml"};
+  if(UNIT_WORDS[w0]) return {unit:UNIT_WORDS[w0], mult:1, rest:words.slice(1).join(" "), note:""};
+  if(UNIT_CONVERT[w0]){ const c = UNIT_CONVERT[w0]; return {unit:c[1], mult:c[0], rest:words.slice(1).join(" "), note:w0+" converted to "+c[1]}; }
+  return {unit:"", mult:1, rest:String(rest).trim(), note:""};
+}
+
+function cleanItem(s){
+  let t = String(s).trim();
+  const optional = /\(\s*optional\s*\)|,\s*optional\b|\bif using\b/i.test(t);
+  t = t.replace(/\(\s*optional\s*\)/ig, " ").replace(/,\s*optional\b/ig, " ");
+  t = t.replace(/\([^)]*\)/g, " ");                 // parenthetical asides
+  t = t.split(/,\s*/)[0];                           // drop ", finely chopped"
+  t = t.replace(/\s+/g, " ").replace(/[.;:]+$/, "").trim();
+  t = t.replace(/^(?:of|the)\s+/i, "");
+  t = t.replace(/\s+(?:to serve|to taste|to garnish|for (?:the )?(?:frying|drizzling|greasing))$/i, "");
+  return {item:t.trim(), optional};
+}
+
+function deBrand(item){
+  let t = item, changed = false;
+  BRANDS.forEach(b=>{ if(b[0].test(t)){ t = t.replace(b[0], b[1]); changed = true; } });
+  if(!changed) return {item:item, changed:false};
+  const adjs = [];
+  t = t.replace(FAT_ADJ, m=>{ adjs.push(m.toLowerCase()); return " "; });
+  t = (adjs.join(" ") + " " + t).replace(/\s+/g, " ").trim();
+  return {item:t, changed:true};
+}
+
+/* The recipe book you already have is the best aisle reference there is,
+   so it gets asked first. */
+function aisleBook(){
+  const exact = {}, words = {};
+  recipes().forEach(r=>(r.doc.ingredients||[]).forEach(i=>{
+    if(!i.item || !i.aisle) return;
+    const n = normItem(i.item);
+    exact[n] = i.aisle;
+    n.split(" ").forEach(w=>{
+      if(w.length < 3) return;
+      words[w] = words[w] || {};
+      words[w][i.aisle] = (words[w][i.aisle]||0) + 1;
+    });
+  }));
+  return {exact, words};
+}
+let AISLE_HINTS = null;
+function aisleHints(){
+  if(!AISLE_HINTS){ AISLE_HINTS = {}; Object.keys(AISLE_HINTS_RAW).forEach(k=>{ AISLE_HINTS[normItem(k)] = AISLE_HINTS_RAW[k]; }); }
+  return AISLE_HINTS;
+}
+function guessAisle(item, bk){
+  const n = normItem(item);
+  if(bk.exact[n]) return bk.exact[n];
+  const H = aisleHints();
+  let best = null, bestLen = 0;
+  Object.keys(H).forEach(k=>{
+    if(k.length <= bestLen) return;
+    if(new RegExp("(^|\\s)" + escRe(k) + "($|\\s)").test(n)){ best = H[k]; bestLen = k.length; }
+  });
+  if(best) return best;
+  const tally = {};
+  n.split(" ").forEach(w=>{ const t = bk.words[w]; if(t) Object.keys(t).forEach(a=>{ tally[a] = (tally[a]||0) + t[a]; }); });
+  const win = Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
+  return win || null;
+}
+
+/* --- section headings --------------------------------------- */
+const SEC_RE = [
+  [/^ingredients?\b/i, "ing"],
+  [/^(?:method|instructions?|directions?|steps?|preparation|how to (?:make|cook)|to (?:make|cook))\b/i, "step"],
+  [/^(?:chef'?s?\s+)?(?:tips?|notes?|hints?)\b/i, "tips"],
+  [/^(?:equipment|kit|you(?:'ll| will) need)\b/i, "equip"],
+  [/^storage\b/i, "storage"],
+  [/^serve\s*with\b/i, "servewith"],
+  [/^nutrition/i, "nutr"]
+];
+function headingOf(l){
+  const t = l.replace(/[:：]\s*$/, "").trim();
+  if(!t || t.length > 46) return null;
+  for(let i=0;i<SEC_RE.length;i++) if(SEC_RE[i][0].test(t)) return SEC_RE[i][1];
+  return null;
+}
+function readMeta(l, doc, found){
+  if(l.length > 70) return false;
+  let hit = 0, m;
+  if((m = l.match(/^(?:serves|servings?|makes|feeds)\s*:?\s*(\d+)/i)) || (m = l.match(/^(\d+)\s+servings?\b/i))){
+    doc.servings = Number(m[1]); found.servings = true; hit++;
+  }
+  if((m = l.match(/prep(?:aration)?(?:\s*time)?\s*:?\s*(?:about\s*)?(\d+)/i))){ doc.prep = Number(m[1]); found.time = true; hit++; }
+  if((m = l.match(/cook(?:ing)?(?:\s*time)?\s*:?\s*(?:about\s*)?(\d+)/i))){ doc.cook = Number(m[1]); found.time = true; hit++; }
+  if((m = l.match(/(?:total(?:\s*time)?|ready in)\s*:?\s*(?:about\s*)?(\d+)/i))){ doc.time = Number(m[1]); found.time = true; hit++; }
+  return hit > 0;
+}
+
+const VERB_RE = /^(?:heat|preheat|put|place|add|stir|mix|cook|fry|boil|simmer|bake|roast|drain|season|pour|cut|chop|slice|dice|peel|melt|whisk|serve|remove|return|bring|reduce|cover|leave|rest|toss|combine|spread|scatter|sprinkle|transfer|tip|set|take|turn|lift|grate|crush|mince|warm|garnish|divide|check|taste|finish|meanwhile|while|once|when|first|next|then)\b/i;
+function looksIngredient(l){
+  const t = l.replace(/^[-•*–—]\s*/, "");
+  if(QTY_RE.test(t) && t.split(/\s+/).length <= 8) return true;
+  return t.split(/\s+/).length <= 4 && !/[.!?]$/.test(t);
+}
+function looksStep(l){
+  const t = l.replace(/^\s*(?:step\s*)?\d+\s*[.):-]\s*/i, "").replace(/^[-•*–—]\s*/, "");
+  if(QTY_RE.test(t) && t.split(/\s+/).length <= 6) return false;
+  if(t.split(/\s+/).length >= 8) return true;
+  return VERB_RE.test(t);
+}
+function stripListNumbers(ls){
+  const nums = ls.map(l=>{ const m = l.match(/^\s*(\d+)\s*[.)]\s+/); return m ? Number(m[1]) : null; });
+  const sequential = ls.length >= 3 && nums.every((n,i)=> n === i+1);
+  return sequential ? ls.map(l=>l.replace(/^\s*\d+\s*[.)]\s+/, "")) : ls;
+}
+function stripStepNum(l){
+  return l.replace(/^\s*step\s*\d+\s*[.):-]?\s*/i, "").replace(/^\s*\d+\s*[.)]\s+/, "").replace(/^[-•*–—]\s*/, "").trim();
+}
+
+/* A step's timer, read out of its own words. */
+function timerFrom(text){
+  const re = /(\d+(?:\.\d+)?)\s*(?:[-–—]\s*(\d+(?:\.\d+)?)\s*)?(mins?|minutes?|hrs?|hours?|secs?|seconds?)\b/ig;
+  let m;
+  while((m = re.exec(text))){
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 14).toLowerCase();
+    if(/^\s*(?:before|earlier|ahead)/.test(after)) continue;        // "5 minutes before the end"
+    const before = text.slice(Math.max(0, m.index - 16), m.index).toLowerCase();
+    if(/(?:every|each)\s*$/.test(before)) continue;                 // "stir every 2 minutes"
+    let v = m[2] != null ? Math.min(Number(m[1]), Number(m[2])) : Number(m[1]);
+    const u = m[3].toLowerCase();
+    if(u.charAt(0) === "h") v *= 60;
+    else if(u.charAt(0) === "s") v /= 60;
+    v = v < 1 ? 1 : Math.round(v);
+    if(v > 0 && v <= 600) return v;
+  }
+  return "";
+}
+
+const FAMILY = { g:["g",1], kg:["g",1000], ml:["ml",1], l:["ml",1000], tsp:["tsp",1], tbsp:["tsp",3] };
+function mergeIngredients(list, notes){
+  const out = [], idx = {};
+  list.forEach(i=>{
+    const fam = FAMILY[i.unit] ? FAMILY[i.unit][0] : (i.unit || "#");
+    const key = normItem(i.item) + "|" + fam;
+    if(idx[key] == null){ idx[key] = out.length; out.push(Object.assign({}, i)); return; }
+    const t = out[idx[key]];
+    if(t.qty == null || i.qty == null) return;
+    const tf = FAMILY[t.unit], af = FAMILY[i.unit];
+    if(tf && af){ t.qty = Math.round((t.qty*tf[1] + i.qty*af[1])*100)/100; t.unit = tf[0]; }
+    else t.qty = Math.round((t.qty + i.qty)*100)/100;
+    notes.push({msg:"“"+t.item+"” was listed more than once, so I added them up: "+fmtQ(t.qty)+(t.unit?" "+t.unit:"")+"."});
+  });
+  return out;
+}
+
+/* Things the method asks for that never made it onto the list.
+   The vocabulary comes from your own recipe book, so it only ever
+   suggests food you actually cook with. */
+function missingFromMethod(steps, ings, notes){
+  const listed = ings.map(i=>normItem(i.item));
+  const haveWord = {};
+  listed.forEach(n=>n.split(" ").forEach(w=>{ haveWord[w] = true; }));
+  const text = " " + steps.map(s=>s.text).join(" ").toLowerCase().replace(/[^a-z0-9\s-]/g," ").replace(/\s+/g," ") + " ";
+  const vocab = {};
+  recipes().forEach(r=>(r.doc.ingredients||[]).forEach(i=>{ if(i.item) vocab[normItem(i.item)] = i.item; }));
+  const out = [];
+  Object.keys(vocab).forEach(n=>{
+    if(out.length >= 5) return;
+    if(n.length < 4) return;
+    if(IMPLICIT.indexOf(n) > -1) return;
+    if(listed.indexOf(n) > -1) return;
+    if(n.split(" ").every(w=>haveWord[w])) return;          // already covered, e.g. "chicken" vs "chicken breast"
+    if(!new RegExp("(^|\\s)" + escRe(n) + "(s|es|e)?(\\s|$)").test(text)) return;
+    out.push(vocab[n]);
+  });
+  return out;
+}
+
+/* Some people write the amount after the name — "Chicken breast 350g",
+   "Olive oil - 2 tsp". Only accepted when the tail is a unit we know,
+   so "2 large" or "x2" is left well alone. */
+function takeTrailingQty(l){
+  const m = l.match(/^(.+?)[\s,:–—-]*[\s(]\s*(\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|[½¼¾⅓⅔⅕⅙⅛⅜⅝⅞])\s*([a-zA-Z]{1,12})?\s*\)?\s*$/);
+  if(!m) return null;
+  const w = (m[3]||"").toLowerCase();
+  if(m[3] && !UNIT_WORDS[w] && !UNIT_CONVERT[w]) return null;
+  const q = takeQty(m[2] + (m[3] ? " " + m[3] : ""));
+  if(q.qty == null) return null;
+  const u = takeUnit(q.rest);
+  const name = m[1].replace(/[\s,:–—-]+$/, "").trim();
+  if(!name) return null;
+  return {qty: u.mult !== 1 ? Math.round(q.qty * u.mult) : q.qty, unit:u.unit, rest:name, note:q.note};
+}
+
+function parseIngredientLine(line, bk, notes){
+  let l = line.replace(/^[-•*–—]\s*/, "").trim();
+  if(!l || /^(?:for the\b|to serve\b|to garnish\b)/i.test(l)) return null;
+  if(/^(?:salt\s*(?:and|&|,)\s*(?:freshly ground\s*)?(?:black\s*)?pepper|seasoning)\b/i.test(l))
+    return {qty:null, unit:"", item:"salt and pepper", aisle:"Herbs & Spices"};
+
+  let q = takeQty(l);
+  let trailing = false;
+  if(q.qty == null){                                   // "Chicken breast 350g"
+    const t = takeTrailingQty(l);
+    if(t){ q = t; trailing = true; }
+  }
+  let qty = q.qty, rest = q.rest;
+  if(q.note === "range") notes.push({msg:"“"+l+"” gave a range, so I took the larger amount ("+fmtQ(qty)+")."});
+
+  const xm = rest.match(/^[x×]\s*/i);                        // "2 x 400g tins chopped tomatoes"
+  if(qty != null && xm){
+    const q2 = takeQty(rest.slice(xm[0].length));
+    if(q2.qty != null){ qty = qty * q2.qty; rest = q2.rest; }
+  }
+  const u = trailing ? {unit:q.unit, mult:1, rest, note:""} : takeUnit(rest);
+  const unit = u.unit;
+  rest = u.rest;
+  if(u.mult !== 1 && qty != null) qty = Math.round(qty * u.mult);
+  if(u.note) notes.push({msg:"“"+l+"”: "+u.note+"."});
+
+  rest = rest.replace(/^(?:of|the)\s+/i, "");
+  const c = cleanItem(rest);
+  if(!c.item) return null;
+
+  const b = deBrand(c.item);
+  if(b.changed) notes.push({msg:"Recorded “"+c.item+"” as “"+b.item+"” so it merges on the shopping list with your other recipes."});
+
+  const item = b.item;
+  const aisle = guessAisle(item, bk);
+  if(!aisle) notes.push({msg:"I couldn't place “"+item+"” on an aisle, so it's under Other — set it and the shopping list will group it properly."});
+  return {qty: qty == null ? null : Math.round(qty*100)/100, unit, item, aisle: aisle || "Other"};
+}
+
+function parseRecipeText(raw){
+  const notes = [], found = {};
+  const doc = { name:"", servings:2, prep:0, cook:0, time:0, batch:false, tags:[],
+                ingredients:[], steps:[], equipment:[], tips:[], serveWith:[],
+                freezer:{ok:false,note:""}, storage:{fridge:"",freezer:""},
+                nutrition:{kcal:"",protein:"",carbs:"",fat:"",fibre:"",note:""} };
+
+  const bucket = { ing:[], step:[], tips:[], equip:[], storage:[], servewith:[], nutr:[] };
+  const pre = [];
+  let sec = null, sawHeading = false;
+
+  String(raw).replace(/\r/g, "").split("\n").forEach(rawLine=>{
+    let l = rawLine.trim().replace(/^#+\s*/, "").replace(/^\*\*\s*|\s*\*\*$/g, "").replace(/^__\s*|\s*__$/g, "").trim();
+    if(!l) return;
+    const head = headingOf(l);
+    if(head){ sec = head; sawHeading = true; return; }
+    if(/^for the\b/i.test(l) && l.length < 44) return;              // "For the sauce:"
+    if(sec !== "step" && sec !== "tips" && readMeta(l, doc, found)) return;
+    (sec ? bucket[sec] : pre).push(l);
+  });
+
+  let title = "";
+  if(!sawHeading){
+    const a = pre.slice();
+    if(a.length && !QTY_RE.test(a[0]) && !/^[-•*–—]/.test(a[0]) && a[0].split(/\s+/).length <= 10 && !/[.!?]$/.test(a[0])) title = a.shift();
+    let cut = a.findIndex(looksStep);
+    if(cut < 0) cut = a.length;
+    bucket.ing = a.slice(0, cut);
+    bucket.step = a.slice(cut);
+    if(bucket.ing.length && bucket.step.length)
+      notes.push({msg:"There were no Ingredients or Method headings, so I worked out where the list ended and the method began. Worth a look."});
+  }else{
+    if(pre.length && !QTY_RE.test(pre[0]) && !/^[-•*–—]/.test(pre[0])) title = pre.shift();
+    if(!bucket.ing.length && pre.length){ bucket.ing = pre.slice(); pre.length = 0; }
+    if(pre.length) notes.push({msg:"Skipped "+pre.length+" "+plural(pre.length,"line")+" above the first heading."});
+  }
+  doc.name = title.replace(/[.:]+$/, "").trim();
+
+  /* ingredients */
+  const bk = aisleBook();
+  const rawIngs = [];
+  stripListNumbers(bucket.ing).forEach(l=>{
+    const p = parseIngredientLine(l, bk, notes);
+    if(p) rawIngs.push(p);
+  });
+  doc.ingredients = mergeIngredients(rawIngs, notes);
+
+  /* method */
+  let stepLines = stripListNumbers(bucket.step);
+  if(stepLines.length && stepLines.length <= 2){
+    const joined = stepLines.join(" ");
+    const split = joined.replace(/([.!?])\s+(?=[A-Z“"(])/g, "$1\n").split("\n").map(s=>s.trim()).filter(Boolean);
+    const merged = [];
+    split.forEach(s=>{ if(merged.length && s.length < 22) merged[merged.length-1] += " " + s; else merged.push(s); });
+    if(merged.length > 2){
+      stepLines = merged;
+      notes.push({msg:"Your method was one block of text, so I split it into steps at each sentence. Join or split any that read oddly."});
+    }
+  }
+  doc.steps = stepLines.map(l=>{ const text = stripStepNum(l); return {text, mins: timerFrom(text)}; }).filter(s=>s.text);
+
+  /* the extras */
+  const clean = ls => ls.map(l=>l.replace(/^[-•*–—]\s*/, "").replace(/^\s*\d+\s*[.)]\s+/, "").trim()).filter(Boolean);
+  doc.tips = clean(bucket.tips);
+  doc.equipment = clean(bucket.equip);
+  doc.serveWith = clean(bucket.servewith);
+  clean(bucket.storage).forEach(l=>{
+    const m = l.match(/^(fridge|freezer|frozen)\s*:?\s*(.+)$/i);
+    if(m) doc.storage[/^fr(?:eezer|ozen)$/i.test(m[1]) ? "freezer" : "fridge"] = m[2].trim();
+    else if(!doc.storage.fridge) doc.storage.fridge = l;
+  });
+  if(doc.storage.freezer) doc.freezer.ok = true;
+
+  /* timings */
+  const timerSum = doc.steps.reduce((a,s)=>a + (Number(s.mins)||0), 0);
+  if(!doc.time) doc.time = (doc.prep + doc.cook) || Math.max(15, Math.round(timerSum)) || 30;
+  if(!doc.prep && !doc.cook) doc.cook = doc.time;
+  if(!doc.servings) doc.servings = 2;
+
+  /* things worth your eyes */
+  const timed = doc.steps.filter(s=>s.mins).length;
+  if(doc.steps.length && !timed) notes.push({msg:"No step said how long it takes, so there are no cook-along timers yet. Add minutes to any step that needs one."});
+  const miss = missingFromMethod(doc.steps, doc.ingredients, notes);
+  miss.forEach(m=>notes.push({
+    msg:"The method mentions "+m+" but it isn't in the ingredients.",
+    add:{qty:null, unit:"", item:m, aisle: guessAisle(m, bk) || "Other"}
+  }));
+  if(doc.servings >= 5) notes.push({msg:"Serves "+doc.servings+" — tick “Good for batch cooking” if you want it offered as a batch cook."});
+  if(!doc.name) notes.push({msg:"I couldn't spot a title. Give it a name before saving."});
+  if(!doc.ingredients.length) notes.push({msg:"I found no ingredients at all. Try pasting again with an “Ingredients” heading above the list."});
+  if(!doc.steps.length) notes.push({msg:"I found no method. Try pasting again with a “Method” heading above the steps."});
+
+  return {doc, notes, found};
+}
+
+/* --- the paste box ------------------------------------------ */
+let pasteInto = null;
+function openPaste(id){
+  pasteInto = id || null;
+  const r = id ? recipeById(id) : null;
+  const h = '<div class="note" style="margin-bottom:14px">'
+    + (r ? 'Paste a fresh ingredients list and method for <b>' + esc(r.doc.name) + '</b>. The name, tags and nutrition you already have are kept.'
+         : 'Paste a whole recipe — title, ingredients, method, and any tips or timings. It works out the quantities, aisles and cook-along timers, then shows you what it found. Nothing is saved until you say so.')
+    + '</div>'
+    + '<textarea id="pastebox" rows="14" placeholder="Paste the recipe here…" style="font-size:15px"></textarea>'
+    + '<div class="row" style="margin-top:14px"><button class="btn primary" data-act="dopaste">Read it</button>'
+    + '<button class="btn ghost" data-close>Cancel</button></div>'
+    + '<p class="tiny muted" style="margin-top:12px">Headings like Ingredients, Method, Tips, Equipment and Serves help, but it copes without them.</p>';
+  sheet(r ? "Paste over this recipe" : "Paste a recipe", h);
+  setTimeout(()=>{ const b = document.getElementById("pastebox"); if(b) b.focus(); }, 80);
+}
+function doPaste(){
+  const box = document.getElementById("pastebox");
+  const txt = box ? box.value : "";
+  if(!txt.trim()){ toast("Nothing pasted yet"); return; }
+  const res = parseRecipeText(txt);
+  if(!res.doc.ingredients.length && !res.doc.steps.length){
+    toast("I couldn't find a recipe in that"); return;
+  }
+  const d = res.doc;
+  if(pasteInto){
+    const base = recipeById(pasteInto);
+    if(base){
+      const b = JSON.parse(JSON.stringify(base.doc));
+      if(!d.name) d.name = b.name;
+      d.tags = b.tags || [];
+      d.batch = b.batch; d.freezer = b.freezer;
+      d.nutrition = b.nutrition;
+      if(!res.found.servings) d.servings = b.servings;
+      if(!res.found.time){ d.prep = b.prep; d.cook = b.cook; d.time = b.time; }
+      if(!d.equipment.length) d.equipment = b.equipment || [];
+      if(!d.tips.length) d.tips = b.tips || [];
+      if(!d.serveWith.length) d.serveWith = b.serveWith || [];
+      res.notes.unshift({msg:"Replacing the ingredients and method only — the name, tags and nutrition are untouched."});
+    }
+  }
+  draft = d;
+  draftId = pasteInto;
+  parseNotes = res.notes;
+  drawEditor();
+  toast(d.ingredients.length + " " + plural(d.ingredients.length,"ingredient") + ", " + d.steps.length + " steps");
 }
 
 /* ---- sharing / setup ---- */
@@ -1750,8 +2270,18 @@ function openHelp(){
     <p>Open any recipe and there's an <b>Edit</b> button at the top, next to Close. There are also Edit links beside the <b>Ingredients</b> and <b>Method</b> headings, which open the editor already scrolled to that part. <b>+ New</b> on the Recipes tab creates one from scratch.</p>
     <p>In the editor, every ingredient and every step is its own row. <b>+ Ingredient</b> and <b>+ Step</b> add more; the <b>×</b> at the end of a row removes it. Change these freely — they're your recipes now, and edits reach the other phone within seconds.</p>
     <p>For each ingredient give a quantity, a unit and an aisle. The aisle is what groups your shopping list, so getting it roughly right is worth the two seconds. Leave the unit blank for things you count, like onions.</p>
-    <p>Each method step can have a number of minutes beside it. Those aren't used yet — they're waiting for the Start Cooking feature — but filling them in now means it'll work the day it arrives.</p>
+    <p>Each method step can have a number of minutes beside it. That's what becomes a timer in the cook-along, so it's worth filling in on any step where you'd otherwise be watching the clock.</p>
     <p class="q">Deleting a recipe also removes any planned meals using it, so check the week first.</p>
+  </div>
+
+  <div class="helpsec">
+    <h3>Pasting a recipe in</h3>
+    <p>Typing a recipe in row by row is slow. <b>📋 Paste a recipe</b> on the Recipes tab takes the whole thing as plain text — title, ingredients, method, and any tips, equipment, serves or timings — and turns it into a proper recipe in one go.</p>
+    <p>It works out the quantity, unit and aisle for each ingredient, and reads the timers straight out of the method, so "fry for 6 minutes" becomes a 6 minute timer in the cook-along. Headings like <i>Ingredients</i> and <i>Method</i> help it, but it copes without them.</p>
+    <p>It's guessing, so <b>nothing is saved until you've looked</b>. You land in the normal editor with everything filled in and a panel at the top listing what it wasn't sure about — a range it had to choose from, a brand name it renamed, an ingredient your method uses but never listed. Where it can fix something itself there's an <b>Add it</b> button; the <b>×</b> dismisses a note you're happy with. Then Save as usual.</p>
+    <p>Two things it does deliberately. It <b>adds up duplicates</b>, so a recipe asking for a teaspoon of oil in three separate sections becomes one line of three. And it <b>renames brands</b> to what the thing actually is — "Philadelphia Light" is stored as "light cream cheese" — so it merges on the shopping list with everything else that wants the same tub. Both get flagged so you can see what it did.</p>
+    <p><b>Paste over</b>, inside a recipe next to Edit, does the same thing but replaces that recipe's ingredients and method. The name, tags and nutrition you've already got are kept. It's the quick way to update a method you've since improved.</p>
+    <p class="q">It won't invent nutrition, and it won't add an ingredient to your list on its own — anything it isn't sure about is a note for you to accept or ignore.</p>
   </div>
 
   <div class="helpsec">
@@ -1862,7 +2392,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-qweek],[data-fweek],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-pfix],[data-pdis],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-qweek],[data-fweek],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
   if(!t) return;
 
   // ---- cook along ----
@@ -1930,9 +2460,15 @@ document.addEventListener("click", e=>{
   if(t.hasAttribute("data-adds")){ commitInputs(); draft.steps.push({text:"",mins:""}); drawEditor(); return; }
   if(t.hasAttribute("data-rmi")){ commitInputs(); draft.ingredients.splice(Number(t.dataset.rmi),1); drawEditor(); return; }
   if(t.hasAttribute("data-rms")){ commitInputs(); draft.steps.splice(Number(t.dataset.rms),1); drawEditor(); return; }
+  if(t.hasAttribute("data-pfix")){ commitInputs(); const n=parseNotes[Number(t.dataset.pfix)];
+    if(n&&n.add) draft.ingredients.push(Object.assign({},n.add));
+    parseNotes.splice(Number(t.dataset.pfix),1); drawEditor(); return; }
+  if(t.hasAttribute("data-pdis")){ commitInputs(); parseNotes.splice(Number(t.dataset.pdis),1); drawEditor(); return; }
 
   const act=t.dataset.act; if(!act) return;
   if(act==="newrecipe") openEditor(null);
+  else if(act==="pasterecipe") openPaste(t.dataset.id||null);
+  else if(act==="dopaste") doPaste();
   else if(act==="editrecipe") openEditor(t.dataset.id, t.dataset.focus);
   else if(act==="saverecipe") saveRecipe();
   else if(act==="delrecipe"){
