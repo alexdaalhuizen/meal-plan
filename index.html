@@ -324,7 +324,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.21";
+const APP_VERSION = "2026.08.22";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -2786,7 +2786,143 @@ const RECIPE_PATCHES = [
   storage:{fridge:"Up to 2 days in an airtight container.",freezer:"Not recommended."},
   serveWith:["A simple green salad, if you want something extra"],
   nutrition:{kcal:690,protein:56,carbs:58,fat:23,fibre:10,
-             note:"Estimated, now including the roast potatoes and broccoli"}}}
+             note:"Estimated, now including the roast potatoes and broccoli"}}},
+ {v:2, add:true, id:"r-stuffed-chicken", doc:{
+  name:"Stuffed chicken with cream cheese, herbs and sun-dried tomatoes",servings:2,prep:15,cook:35,time:50,batch:false,
+  freezer:{ok:false,note:""},
+  tags:["chicken","one plate"],
+  ingredients:[
+   I(350,"g","chicken breast","Meat & Fish"),
+   I(400,"g","potatoes","Produce"),I(1,"","red pepper","Produce"),I(1,"","courgette","Produce"),
+   I(150,"g","Tenderstem broccoli","Produce"),I(150,"g","green beans","Produce"),
+   I(null,"","basil","Produce"),I(null,"","parsley","Produce"),I(1,"","lemon","Produce"),
+   I(30,"g","sun-dried tomatoes","Tins & Jars"),
+   I(1,"tsp","dried oregano","Herbs & Spices"),I(0.5,"tsp","smoked paprika","Herbs & Spices"),
+   I(2,"tsp","olive oil","Dry Goods"),
+   I(60,"g","light cream cheese","Dairy & Eggs"),I(50,"ml","semi-skimmed milk","Dairy & Eggs"),
+   I(1,"tsp","butter","Dairy & Eggs")],
+  steps:[
+   St("Peel the potatoes and cut them into evenly sized chunks."),
+   St("Put them into a saucepan of cold salted water and bring to the boil."),
+   St("Once boiling, cook until completely soft.",17),
+   St("While the potatoes cook, finely chop the sun-dried tomatoes, basil and parsley."),
+   St("Mix the cream cheese, sun-dried tomatoes, basil, parsley, oregano and black pepper together in a small bowl."),
+   St("Cut a pocket horizontally through the thickest part of each chicken breast, without cutting all the way through."),
+   St("Divide the cream cheese mixture between the two breasts and press it into the pockets."),
+   St("Close the chicken over the filling, securing with cocktail sticks if you need to."),
+   St("Mix the smoked paprika with salt and black pepper, and rub it over the outside of the chicken."),
+   St("Drizzle with 1 tsp olive oil and squeeze over half the lemon."),
+   St("Heat the oven to 200°C fan.",10),
+   St("Drain the potatoes thoroughly, return them to the pan and leave them a minute for the steam to escape.",1),
+   St("Add the milk and butter and mash until smooth and creamy, then season with salt and pepper."),
+   St("Put the lid on and keep the mash warm over a very low heat."),
+   St("Put the stuffed chicken into a lightly oiled baking dish and bake until the thickest part reaches 74°C.",24),
+   St("Slice the red pepper and courgette and spread them on a baking tray."),
+   St("Toss with 1 tsp olive oil, the oregano and black pepper."),
+   St("Put the tray in the oven alongside the chicken and roast until softened and browning at the edges.",17),
+   St("About 7 minutes before the chicken is due out, bring a saucepan of well-salted water to a rolling boil."),
+   St("Add the Tenderstem broccoli and green beans and boil.",4),
+   St("Drain the greens thoroughly."),
+   St("Take the chicken out of the oven and leave it to rest.",5),
+   St("Remove any cocktail sticks and slice each breast in half to show the filling."),
+   St("Divide the mash between two plates and add the roasted pepper and courgette."),
+   St("Add the broccoli and green beans, sit the chicken alongside, and finish with a squeeze of lemon.")],
+  equipment:["Medium saucepan","Second saucepan","Baking dish","Baking tray","Colander","Potato masher","Cocktail sticks"],
+  tips:["If your chicken breasts are particularly thick, allow an extra 5 minutes in the oven.",
+   "Four minutes for greens with a little bite, five if you prefer them softer.",
+   "Resting lets the juices redistribute and gives the filling a chance to settle."],
+  storage:{fridge:"",freezer:""},
+  serveWith:[],
+  nutrition:{kcal:"",protein:"",carbs:"",fat:"",fibre:"",note:""}}},
+
+ {v:2, add:true, id:"r-paprika-chicken", doc:{
+  name:"Paprika chicken with roasted sweet potatoes",servings:2,prep:10,cook:40,time:45,batch:false,
+  freezer:{ok:false,note:""},
+  tags:["chicken","garlic free","one tray"],
+  ingredients:[
+   I(350,"g","chicken breast","Meat & Fish"),
+   I(400,"g","sweet potatoes","Produce"),I(200,"g","Tenderstem broccoli","Produce"),
+   I(150,"g","green beans","Produce"),I(null,"","parsley","Produce"),
+   I(200,"g","chopped tomatoes","Tins & Jars"),I(1,"tbsp","tomato purée","Tins & Jars"),
+   I(100,"ml","chicken stock","Dry Goods"),I(2,"tsp","olive oil","Dry Goods"),
+   I(2.5,"tsp","smoked paprika","Herbs & Spices"),I(1.5,"tsp","dried oregano","Herbs & Spices"),
+   I(0.5,"tsp","ground cumin","Herbs & Spices")],
+  steps:[
+   St("Heat the oven to 200°C fan.",10),
+   St("Peel the sweet potatoes and cut them into roughly 2–3cm cubes."),
+   St("Put them on a large baking tray with 1 tsp olive oil, ½ tsp smoked paprika, oregano, salt and black pepper, and toss until evenly coated."),
+   St("Spread them into a single layer with a little space between the pieces, then roast, turning after about 20 minutes.",38),
+   St("While they roast, slice any thick chicken breasts horizontally into two thinner pieces."),
+   St("Mix the smoked paprika, oregano, cumin, salt and black pepper together and coat the chicken thoroughly."),
+   St("Chop the parsley, and measure out the chopped tomatoes, tomato purée and chicken stock."),
+   St("Once the sweet potatoes have had about 20 minutes, heat a large frying pan over a medium heat with 1 tsp olive oil."),
+   St("Add the seasoned chicken and cook on the first side.",6),
+   St("Turn and cook the second side, then lift onto a plate. It doesn't need to be cooked through yet.",6),
+   St("In the same pan, add the tomato purée and cook, stirring.",1),
+   St("Add the chopped tomatoes, the chicken stock, ½ tsp smoked paprika and ½ tsp oregano, and season."),
+   St("Stir together, bring to a gentle simmer and cook until it starts to thicken.",5),
+   St("Return the chicken, spoon the sauce over, and simmer gently, turning once, until the thickest part reaches 74°C.",6),
+   St("Turn the heat to low, stir the parsley through, then taste and adjust the seasoning."),
+   St("About 5 minutes before the sweet potatoes are due out, bring a saucepan of well-salted water to a rolling boil."),
+   St("Add the green beans and cook.",1),
+   St("Add the Tenderstem broccoli and keep boiling until tender with a little bite.",4),
+   St("Drain the greens thoroughly."),
+   St("Check the sweet potatoes are soft in the centre, golden at the edges and slightly caramelised — another 5 minutes if not."),
+   St("Divide the sweet potatoes between two plates, add the chicken with plenty of the tomato sauce, and serve with the greens.")],
+  equipment:["Large baking tray","Large frying pan","Medium saucepan","Colander","Measuring jug"],
+  tips:["If the sauce becomes too thick, add a small splash of chicken stock.",
+   "Giving the beans a minute's head start leaves both them and the broccoli cooked but with a little bite.",
+   "If the sweet potatoes aren't quite tender, give them another 5 minutes."],
+  storage:{fridge:"",freezer:""},
+  serveWith:[],
+  nutrition:{kcal:"",protein:"",carbs:"",fat:"",fibre:"",note:""}}},
+
+ {v:2, add:true, id:"r-chicken-mushroom-pasta", doc:{
+  name:"Creamy chicken and mushroom pasta",servings:2,prep:10,cook:25,time:35,batch:false,
+  freezer:{ok:false,note:""},
+  tags:["chicken","pasta"],
+  ingredients:[
+   I(300,"g","chicken breast","Meat & Fish"),
+   I(250,"g","mushrooms","Produce"),I(1,"","onion","Produce"),I(1,"clove","garlic","Produce"),
+   I(100,"g","baby spinach","Produce"),I(null,"","parsley","Produce"),I(1,"","lemon","Produce"),
+   I(120,"g","tagliatelle","Dry Goods"),I(100,"ml","chicken stock","Dry Goods"),
+   I(1,"tsp","olive oil","Dry Goods"),
+   I(1.5,"tsp","Dijon mustard","Tins & Jars"),I(0.5,"tsp","Worcestershire sauce","Tins & Jars"),
+   I(0.5,"tsp","smoked paprika","Herbs & Spices"),I(1,"tsp","dried thyme","Herbs & Spices"),
+   I(60,"g","light cream cheese","Dairy & Eggs"),I(60,"g","reduced-fat crème fraîche","Dairy & Eggs"),
+   I(25,"g","reduced-fat Cheddar","Dairy & Eggs")],
+  steps:[
+   St("Cut the chicken breast into bite-sized pieces."),
+   St("Slice the mushrooms, finely dice the onion and finely mince the garlic."),
+   St("Chop the parsley and finely grate the Cheddar."),
+   St("Put a large saucepan of salted water on to boil for the pasta."),
+   St("Season the chicken with the smoked paprika, black pepper and a small pinch of salt."),
+   St("Heat the olive oil in a large frying pan over a medium-high heat."),
+   St("Add the chicken and cook, turning regularly, until golden outside and cooked through.",6),
+   St("Lift the chicken onto a plate and set aside — it gets warmed through again in the sauce, so don't overcook it."),
+   St("Add the tagliatelle to the boiling water and cook until al dente.",10),
+   St("Scoop out about 150ml of the pasta water, then drain the pasta and set it aside."),
+   St("In the same frying pan, spread the mushrooms out and cook over a medium-high heat, stirring occasionally, until well browned.",7),
+   St("Reduce the heat to medium, add the diced onion and cook until softened.",3),
+   St("Add the garlic and the dried thyme and cook, stirring, without letting the garlic burn.",1),
+   St("Pour in the chicken stock, add the Dijon mustard and Worcestershire sauce, and stir, scraping up anything stuck to the pan."),
+   St("Bring to a gentle simmer and cook.",3),
+   St("Reduce the heat to low and stir in the cream cheese until completely incorporated."),
+   St("Stir in the crème fraîche until smooth, then the grated Cheddar until melted."),
+   St("Add about 50ml of the reserved pasta water and stir. Add another 25–50ml if it still looks thick."),
+   St("Return the chicken to the pan with the drained pasta, and the spinach if you're using it."),
+   St("Toss until the pasta is coated and the spinach has wilted, adding a splash more pasta water if you need to.",2),
+   St("Take the pan off the heat, squeeze over the lemon, add plenty of black pepper and most of the parsley, and toss."),
+   St("Taste and season, then divide between two bowls and finish with the rest of the parsley.")],
+  equipment:["Large saucepan","Large frying pan","Colander","Grater","Measuring jug"],
+  tips:["Keep the pasta water — the starch is what turns the cream cheese into a smooth, silky sauce.",
+   "Don't rush the mushrooms. Well-browned ones give the finished sauce considerably more flavour.",
+   "Keep the heat gentle once the cheese is in; don't let it boil hard.",
+   "Add the lemon off the heat — it brightens the sauce and balances the richness.",
+   "The sauce should look slightly thinner than you want it before the pasta goes in; it thickens as you toss."],
+  storage:{fridge:"",freezer:""},
+  serveWith:[],
+  nutrition:{kcal:"",protein:"",carbs:"",fat:"",fibre:"",note:""}}}
 ];
 
 /* Returns true if it actually wrote something, so the caller knows to redraw. */
@@ -2806,7 +2942,9 @@ function ensureRecipes(){
   const done = (pv && Number(pv.doc.v)) || 0;
   let highest = done;
   RECIPE_PATCHES.forEach(p=>{
-    if(p.v > done && get(p.id)){ put("recipe", p.id, p.doc); wrote = true; }
+    // p.add creates a new one; without it we only update a recipe that's
+    // still there, so a patch never resurrects something you deleted.
+    if(p.v > done && (p.add || get(p.id))){ put("recipe", p.id, p.doc); wrote = true; }
     if(p.v > highest) highest = p.v;
   });
   if(highest > done) put("setting","setting:recipepatch",{v:highest});
