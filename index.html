@@ -327,7 +327,7 @@ pre.sql{background:var(--bg);border:1px solid var(--line);border-radius:10px;pad
 /* =========================================================
    0. Keys, constants
    ========================================================= */
-const APP_VERSION = "2026.08.28";
+const APP_VERSION = "2026.08.29";
 const CFG_KEY  = "mealplan.cfg";
 const DATA_KEY = "mealplan.v2";
 const AISLES = ["Produce","Meat & Fish","Dairy & Eggs","Bakery","Tins & Jars","Dry Goods","Herbs & Spices","Frozen","Household","Other"];
@@ -1532,6 +1532,7 @@ function drawEditor(){
     h = '<div class="pbox"><b>Read from your text — worth a check</b>'
       + parseNotes.map((n,i)=>'<div class="pnote">'+esc(n.msg)
           + (n.add?' <button class="btn sm" data-pfix="'+i+'">Add it</button>':'')
+          + (n.moveItems?' <button class="btn sm" data-pmove="'+i+'">Move to method</button>':'')
           + '<button class="pdis" data-pdis="'+i+'" aria-label="Dismiss">×</button></div>').join('')
       + '</div>' + h;
   }
@@ -1777,8 +1778,8 @@ function guessAisle(item, bk){
 
 /* --- section headings --------------------------------------- */
 const SEC_RE = [
-  [/^ingredients?\b/i, "ing"],
-  [/^(?:method|instructions?|directions?|steps?|preparation|how to (?:make|cook)|to (?:make|cook))\b/i, "step"],
+  [/^(?:ingredients?|ingredient list|what you(?:'ll| will)? need|shopping list)\b/i, "ing"],
+  [/^(?:method|methods|instructions?|directions?|steps?|preparation|prep steps|cooking|how to (?:make|cook)|to (?:make|cook)|what to do|lets cook|let's cook)\b/i, "step"],
   [/^(?:chef'?s?\s+)?(?:tips?|notes?|hints?)\b/i, "tips"],
   [/^(?:equipment|kit|you(?:'ll| will) need)\b/i, "equip"],
   [/^storage\b/i, "storage"],
@@ -1788,7 +1789,44 @@ const SEC_RE = [
 function headingOf(l){
   const t = l.replace(/[:：]\s*$/, "").trim();
   if(!t || t.length > 46) return null;
-  for(let i=0;i<SEC_RE.length;i++) if(SEC_RE[i][0].test(t)) return SEC_RE[i][1];
+  for(let i=0;i<SEC_RE.length;i++){
+    const m = t.match(SEC_RE[i][0]);
+    if(!m) continue;
+    // "Ingredients (serves 2)" is a heading; "Method: 1. Heat the oven" is not.
+    const tail = t.slice(m[0].length).replace(/[^a-z0-9]+/ig, " ").trim();
+    if(!tail || tail.split(/\s+/).length <= 2) return SEC_RE[i][1];
+  }
+  return null;
+}
+/* "Method: Heat the oven…" — the heading and the first step on one line. */
+function headingSplit(l){
+  const m = l.match(/^([A-Za-z'’ ]{3,26}?)\s*[:：]\s*(\S.*)$/);
+  if(!m) return null;
+  const sec = headingOf(m[1]);
+  return sec ? {sec, rest:m[2]} : null;
+}
+/* "1. Heat the oven" is a step; "1 large onion, finely diced" is not. */
+function looksNumberedStep(l){
+  const m = l.match(/^\s*(?:step\s*)?\d+\s*[.)]\s+(.+)$/i);
+  return !!(m && (VERB_RE.test(m[1]) || m[1].split(/\s+/).length >= 6));
+}
+function stepish(l){
+  if(looksNumberedStep(l)) return true;
+  if(QTY_RE.test(String(l).replace(/^[-•*–—]\s*/, ""))) return false;   // opens with an amount
+  return looksStep(l);
+}
+/* An ingredients block that ran on into the method because nothing said
+   "Method". Only cuts where the tail really is mostly instructions. */
+function splitIngFromSteps(ls){
+  for(let i=0;i<ls.length;i++){
+    if(!stepish(ls[i])) continue;
+    const rest = ls.slice(i);
+    const n = rest.filter(stepish).length;
+    if(rest.length >= 2 && n >= Math.max(2, Math.ceil(rest.length * 0.6)))
+      return {ing: ls.slice(0,i), step: rest};
+    if(rest.length === 1 && rest[0].split(/\s+/).length >= 8)
+      return {ing: ls.slice(0,i), step: rest};
+  }
   return null;
 }
 function readMeta(l, doc, found){
@@ -1954,6 +1992,8 @@ function parseRecipeText(raw){
     if(!l) return;
     const head = headingOf(l);
     if(head){ sec = head; sawHeading = true; return; }
+    const hs = headingSplit(l);
+    if(hs){ sec = hs.sec; sawHeading = true; l = hs.rest; }
     if(/^for the\b/i.test(l) && l.length < 44) return;              // "For the sauce:"
     if(sec !== "step" && sec !== "tips" && readMeta(l, doc, found)) return;
     (sec ? bucket[sec] : pre).push(l);
@@ -1963,7 +2003,7 @@ function parseRecipeText(raw){
   if(!sawHeading){
     const a = pre.slice();
     if(a.length && !QTY_RE.test(a[0]) && !/^[-•*–—]/.test(a[0]) && a[0].split(/\s+/).length <= 10 && !/[.!?]$/.test(a[0])) title = a.shift();
-    let cut = a.findIndex(looksStep);
+    let cut = a.findIndex(l=>stepish(l));
     if(cut < 0) cut = a.length;
     bucket.ing = a.slice(0, cut);
     bucket.step = a.slice(cut);
@@ -1975,6 +2015,17 @@ function parseRecipeText(raw){
     if(pre.length) notes.push({msg:"Skipped "+pre.length+" "+plural(pre.length,"line")+" above the first heading."});
   }
   doc.name = title.replace(/[.:]+$/, "").trim();
+
+  /* Nothing said "Method", so the steps are still sitting in the
+     ingredients block. Cut them out and put them where they belong. */
+  if(bucket.ing.length){
+    const sp = splitIngFromSteps(bucket.ing);
+    if(sp && sp.step.length){
+      bucket.ing = sp.ing;
+      bucket.step = sp.step.concat(bucket.step);
+      notes.push({msg:"Nothing marked where the method began, so I took the last "+sp.step.length+" "+plural(sp.step.length,"line")+" of the list as steps. Check I've cut it in the right place."});
+    }
+  }
 
   /* ingredients */
   const bk = aisleBook();
@@ -2018,6 +2069,13 @@ function parseRecipeText(raw){
   if(!doc.servings) doc.servings = 2;
 
   /* things worth your eyes */
+  const strays = doc.ingredients.filter(i=>i.qty == null && !i.unit && stepish(i.item));
+  if(strays.length) notes.push({
+    msg: strays.length + " " + plural(strays.length,"ingredient") + " read more like method steps (“"
+         + (strays[0].item.length > 44 ? strays[0].item.slice(0,44) + "…" : strays[0].item) + "”).",
+    moveItems: strays.map(i=>i.item)
+  });
+
   const timed = doc.steps.filter(s=>s.mins).length;
   if(doc.steps.length && !timed) notes.push({msg:"No step said how long it takes, so there are no cook-along timers yet. Add minutes to any step that needs one."});
   const miss = missingFromMethod(doc.steps, doc.ingredients, notes);
@@ -2278,6 +2336,7 @@ function openHelp(){
     <h3>Pasting a recipe in</h3>
     <p>Typing a recipe in row by row is slow. <b>📋 Paste a recipe</b> on the Recipes tab takes the whole thing as plain text — title, ingredients, method, and any tips, equipment, serves or timings — and turns it into a proper recipe in one go.</p>
     <p>It works out the quantity, unit and aisle for each ingredient, and reads the timers straight out of the method, so "fry for 6 minutes" becomes a 6 minute timer in the cook-along. Headings like <i>Ingredients</i> and <i>Method</i> help it, but it copes without them.</p>
+    <p>It doesn't need an <i>Ingredients</i> or <i>Method</i> heading. If nothing marks where the list stops and the cooking starts, it works it out and says so in the notes. If it still gets the split wrong, the note offers a <b>Move to method</b> button that shifts the misplaced lines across in one tap.</p>
     <p>It's guessing, so <b>nothing is saved until you've looked</b>. You land in the normal editor with everything filled in and a panel at the top listing what it wasn't sure about — a range it had to choose from, a brand name it renamed, an ingredient your method uses but never listed. Where it can fix something itself there's an <b>Add it</b> button; the <b>×</b> dismisses a note you're happy with. Then Save as usual.</p>
     <p>Two things it does deliberately. It <b>adds up duplicates</b>, so a recipe asking for a teaspoon of oil in three separate sections becomes one line of three. And it <b>renames brands</b> to what the thing actually is — "Philadelphia Light" is stored as "light cream cheese" — so it merges on the shopping list with everything else that wants the same tub. Both get flagged so you can see what it did.</p>
     <p><b>Paste over</b>, inside a recipe next to Edit, does the same thing but replaces that recipe's ingredients and method. The name, tags and nutrition you've already got are kept. It's the quick way to update a method you've since improved.</p>
@@ -2392,7 +2451,7 @@ document.getElementById("menuBtn").addEventListener("click", e=>{ e.stopPropagat
 document.getElementById("syncPill").addEventListener("click", ()=>{ if(connected()&&syncState!=="err") sync(); openSharing(); });
 
 document.addEventListener("click", e=>{
-  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-pfix],[data-pdis],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-qweek],[data-fweek],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
+  const t=e.target.closest("[data-week],[data-add],[data-delmeal],[data-openrecipe],[data-act],[data-pick],[data-tick],[data-tickx],[data-hide],[data-delx],[data-close],[data-overlay],[data-addi],[data-adds],[data-rmi],[data-rms],[data-pfix],[data-pdis],[data-pmove],[data-adjust],[data-step],[data-spendweek],[data-spendopen],[data-spendedit],[data-spweek],[data-spcur],[data-setcur],[data-spmode],[data-qweek],[data-fweek],[data-cookstart],[data-cookexit],[data-cooknext],[data-cookprev],[data-starttimer],[data-tcancel],[data-tplus],[data-clearfired],[data-gostep],[data-cookview]");
   if(!t) return;
 
   // ---- cook along ----
@@ -2463,6 +2522,19 @@ document.addEventListener("click", e=>{
   if(t.hasAttribute("data-pfix")){ commitInputs(); const n=parseNotes[Number(t.dataset.pfix)];
     if(n&&n.add) draft.ingredients.push(Object.assign({},n.add));
     parseNotes.splice(Number(t.dataset.pfix),1); drawEditor(); return; }
+  if(t.hasAttribute("data-pmove")){ commitInputs();
+    const n=parseNotes[Number(t.dataset.pmove)];
+    if(n&&n.moveItems){
+      const want=n.moveItems.slice(), moved=[];
+      draft.ingredients = draft.ingredients.filter(i=>{
+        const k = want.indexOf(i.item);
+        if(k>-1 && (i.qty==null||i.qty==="")){ want.splice(k,1); moved.push(i.item); return false; }
+        return true;
+      });
+      draft.steps = moved.map(txt=>({text:txt, mins:timerFrom(txt)}))
+                         .concat(draft.steps.filter(s=>s.text.trim()));
+    }
+    parseNotes.splice(Number(t.dataset.pmove),1); drawEditor(); return; }
   if(t.hasAttribute("data-pdis")){ commitInputs(); parseNotes.splice(Number(t.dataset.pdis),1); drawEditor(); return; }
 
   const act=t.dataset.act; if(!act) return;
